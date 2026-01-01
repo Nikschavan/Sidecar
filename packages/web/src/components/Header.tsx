@@ -43,7 +43,7 @@ export function Header({ projects, currentProject, sessionId, status, onProjectC
           className="flex-1 bg-slate-700 text-sm rounded-lg px-3 py-2 text-slate-200 border-none focus:ring-2 focus:ring-primary-500 truncate"
         >
           <option value="" disabled>Select project...</option>
-          {projects.map((p) => (
+          {(projects || []).map((p) => (
             <option key={p.path} value={p.path}>
               {p.name}
             </option>
