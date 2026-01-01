@@ -94,6 +94,8 @@ export interface ToolCall {
   id: string
   name: string
   input: unknown
+  result?: string
+  isError?: boolean
 }
 
 // Chat message (simplified for UI)

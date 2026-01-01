@@ -197,6 +197,9 @@ interface ContentBlock {
   id?: string
   name?: string
   input?: unknown
+  tool_use_id?: string
+  content?: string
+  is_error?: boolean
 }
 
 interface ClaudeMessage {
@@ -224,7 +227,29 @@ export function readClaudeSession(cwd: string, sessionId: string): ChatMessage[]
   const lines = content.trim().split('\n')
   const messages: ChatMessage[] = []
   const seenIds = new Set<string>() // Dedupe messages with same UUID
+  // Track tool results by tool_use_id to attach to tool calls
+  const toolResults = new Map<string, { content: string; isError: boolean }>()
 
+  // First pass: collect all tool results
+  for (const line of lines) {
+    try {
+      const entry = JSON.parse(line) as ClaudeMessage
+      if (entry.type === 'user' && entry.message && Array.isArray(entry.message.content)) {
+        for (const block of entry.message.content) {
+          if (block.type === 'tool_result' && block.tool_use_id) {
+            toolResults.set(block.tool_use_id, {
+              content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
+              isError: block.is_error || false
+            })
+          }
+        }
+      }
+    } catch {
+      // Skip malformed lines
+    }
+  }
+
+  // Second pass: build messages with tool results attached
   for (const line of lines) {
     try {
       const entry = JSON.parse(line) as ClaudeMessage
@@ -245,11 +270,16 @@ export function readClaudeSession(cwd: string, sessionId: string): ChatMessage[]
         if (existingIdx >= 0 && Array.isArray(entry.message.content)) {
           const toolCalls = entry.message.content
             .filter((c) => c.type === 'tool_use')
-            .map((c) => ({
-              id: c.id || '',
-              name: c.name || '',
-              input: c.input
-            }))
+            .map((c) => {
+              const result = toolResults.get(c.id || '')
+              return {
+                id: c.id || '',
+                name: c.name || '',
+                input: c.input,
+                result: result?.content,
+                isError: result?.isError
+              }
+            })
           if (toolCalls.length > 0) {
             messages[existingIdx].toolCalls = toolCalls
           }
@@ -272,15 +302,25 @@ export function readClaudeSession(cwd: string, sessionId: string): ChatMessage[]
         )
         text = textBlocks.map((c) => c.text).join('\n')
 
-        // Extract all tool calls
+        // Extract all tool calls with their results
         const tools = entry.message.content.filter((c) => c.type === 'tool_use')
         if (tools.length > 0) {
-          toolCalls = tools.map((c) => ({
-            id: c.id || '',
-            name: c.name || '',
-            input: c.input
-          }))
+          toolCalls = tools.map((c) => {
+            const result = toolResults.get(c.id || '')
+            return {
+              id: c.id || '',
+              name: c.name || '',
+              input: c.input,
+              result: result?.content,
+              isError: result?.isError
+            }
+          })
         }
+      }
+
+      // Skip user messages that are only tool results (no visible text)
+      if (entry.type === 'user' && !text) {
+        continue
       }
 
       // Skip messages with no text and no tool calls

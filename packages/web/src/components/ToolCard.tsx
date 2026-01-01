@@ -1,12 +1,19 @@
+import { useState } from 'react'
+
 interface ToolCall {
   id: string
   name: string
   input: unknown
+  result?: string
+  isError?: boolean
 }
 
 interface ToolCardProps {
   tool: ToolCall
 }
+
+// Max length before truncating
+const MAX_RESULT_LENGTH = 200
 
 // Helper to safely get string from input
 function getString(input: unknown, keys: string[]): string | null {
@@ -199,20 +206,56 @@ function getToolPresentation(tool: ToolCall): { title: string; subtitle: string 
 
 export function ToolCard({ tool }: ToolCardProps) {
   const { icon, title, subtitle } = getToolPresentation(tool)
+  const [expanded, setExpanded] = useState(false)
+
+  const hasResult = tool.result !== undefined
+  const resultIsTruncated = hasResult && tool.result!.length > MAX_RESULT_LENGTH
+  const displayResult = hasResult
+    ? (expanded || !resultIsTruncated ? tool.result : tool.result!.slice(0, MAX_RESULT_LENGTH) + '...')
+    : null
 
   return (
-    <div className="flex items-start gap-2 py-1">
-      <span className="text-sm">{icon}</span>
-      <div className="min-w-0 flex-1">
-        <div className="text-xs font-medium text-slate-300">
-          {title}
-        </div>
-        {subtitle && (
-          <div className="text-xs text-slate-500 truncate font-mono">
-            {subtitle}
+    <div className="py-1">
+      <div className="flex items-start gap-2">
+        <span className="text-sm">{icon}</span>
+        <div className="min-w-0 flex-1">
+          <div className="text-xs font-medium text-slate-300">
+            {title}
           </div>
+          {subtitle && (
+            <div className="text-xs text-slate-500 truncate font-mono">
+              {subtitle}
+            </div>
+          )}
+        </div>
+        {hasResult && (
+          <span className={`text-xs px-1.5 py-0.5 rounded ${tool.isError ? 'bg-red-900/50 text-red-300' : 'bg-green-900/50 text-green-300'}`}>
+            {tool.isError ? 'error' : 'done'}
+          </span>
         )}
       </div>
+
+      {/* Tool result display */}
+      {displayResult && (
+        <div className="mt-1.5 ml-6">
+          <div
+            className={`text-xs font-mono p-2 rounded bg-slate-950/50 overflow-x-auto whitespace-pre-wrap break-words ${
+              tool.isError ? 'text-red-400 border border-red-900/50' : 'text-slate-400'
+            }`}
+            style={{ maxHeight: expanded ? 'none' : '100px' }}
+          >
+            {displayResult}
+          </div>
+          {resultIsTruncated && (
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="text-xs text-blue-400 hover:text-blue-300 mt-1"
+            >
+              {expanded ? 'Show less' : 'Show more'}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }
