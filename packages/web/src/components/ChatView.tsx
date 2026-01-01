@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { ChatMessage } from '@sidecar/shared'
+import { ToolCard } from './ToolCard'
 
 interface ChatViewProps {
   messages: ChatMessage[]
@@ -72,15 +73,9 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         </div>
         
         {message.toolCalls && message.toolCalls.length > 0 && (
-          <div className="mt-2 pt-2 border-t border-slate-600/50">
+          <div className="mt-2 pt-2 border-t border-slate-600/50 space-y-1">
             {message.toolCalls.map((tool) => (
-              <div
-                key={tool.id}
-                className="text-xs text-slate-400 flex items-center gap-1"
-              >
-                <span className="text-primary-400">⚡</span>
-                <span>{tool.name}</span>
-              </div>
+              <ToolCard key={tool.id} tool={tool} />
             ))}
           </div>
         )}
