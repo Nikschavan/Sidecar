@@ -9,7 +9,7 @@ import { WebSocketServer } from 'ws'
 import { createWSServer, type WSClient } from './ws/server.js'
 import { createSessionManager } from './session/manager.js'
 import { listClaudeSessions, readClaudeSession, getMostRecentSession, listAllProjects, findSessionProject } from './claude/sessions.js'
-import { spawnClaude, type ClaudeProcess } from './claude/spawn.js'
+import { spawnClaude, type ClaudeProcess, type PermissionRequest } from './claude/spawn.js'
 import type { ClientMessage } from '@sidecar/shared'
 
 const PORT = parseInt(process.env.PORT || '3456', 10)
@@ -26,7 +26,7 @@ interface ActiveProcess {
   claude: ClaudeProcess
   sessionId: string
   projectPath: string
-  pendingPermission: { tool: string; description: string } | null
+  pendingPermission: PermissionRequest | null
   responses: unknown[]
   resolve: () => void
 }
@@ -188,7 +188,7 @@ const httpServer = createServer(async (req, res) => {
 
     // Spawn Claude with --resume to continue the session
     const responses: unknown[] = []
-    let pendingPermission: { tool: string; description: string } | null = null
+    let pendingPermission: PermissionRequest | null = null
 
     const claude = spawnClaude({
       cwd: projectPath,
@@ -197,22 +197,27 @@ const httpServer = createServer(async (req, res) => {
         responses.push(msg)
         // Broadcast to WebSocket clients (phones)
         ws.broadcast({ type: 'claude_message', message: msg, sessionId })
+      },
+      onPermissionRequest: (permReq) => {
+        console.log(`[server] Permission request for ${permReq.toolName}: ${JSON.stringify(permReq.input).slice(0, 100)}`)
+        pendingPermission = permReq
 
-        // Check for permission request in assistant messages
-        if (msg.type === 'assistant' && 'message' in msg) {
-          const content = (msg as any).message?.content
-          if (Array.isArray(content)) {
-            for (const block of content) {
-              if (block.type === 'tool_use') {
-                // Track tool use that may need permission
-                pendingPermission = {
-                  tool: block.name,
-                  description: `${block.name}: ${JSON.stringify(block.input).slice(0, 100)}`
-                }
-              }
-            }
-          }
+        // Update the active process with the pending permission
+        const proc = activeProcesses.get(sessionId)
+        if (proc) {
+          proc.pendingPermission = permReq
         }
+
+        // Broadcast permission request to all connected clients
+        ws.broadcast({
+          type: 'permission_request',
+          sessionId,
+          requestId: permReq.requestId,
+          toolName: permReq.toolName,
+          toolUseId: permReq.toolUseId,
+          input: permReq.input,
+          permissionSuggestions: permReq.permissionSuggestions
+        })
       }
     })
 
@@ -283,7 +288,7 @@ const httpServer = createServer(async (req, res) => {
     for await (const chunk of req) {
       body += chunk
     }
-    const { tool, allow, always } = JSON.parse(body || '{}')
+    const { requestId, allow } = JSON.parse(body || '{}')
 
     const activeProcess = activeProcesses.get(sessionId)
     if (!activeProcess) {
@@ -292,13 +297,21 @@ const httpServer = createServer(async (req, res) => {
       return
     }
 
-    console.log(`[server] Permission response for ${sessionId}: ${tool} ${allow ? 'allowed' : 'denied'}`)
+    const reqId = requestId || activeProcess.pendingPermission?.requestId
+    if (!reqId) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'No pending permission request' }))
+      return
+    }
+
+    console.log(`[server] Permission response for ${sessionId}: ${reqId} ${allow ? 'allowed' : 'denied'}`)
 
     // Send permission response to Claude
-    activeProcess.claude.sendPermissionResponse(tool || activeProcess.pendingPermission?.tool || 'unknown', allow, always)
+    activeProcess.claude.sendPermissionResponse(reqId, allow, activeProcess.pendingPermission?.input)
+    activeProcess.pendingPermission = null
 
     res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ ok: true, tool, allow }))
+    res.end(JSON.stringify({ ok: true, requestId: reqId, allow }))
     return
   }
 
@@ -575,6 +588,22 @@ const ws = createWSServer(wss, {
       }
 
       sessionManager.sendMessage(sessionId, message.text)
+    }
+
+    // Handle permission response from web client
+    if (message.type === 'permission_response') {
+      const { sessionId, requestId, allow, updatedInput } = message
+      console.log(`[server] Permission response for ${sessionId}: ${allow ? 'ALLOW' : 'DENY'}`)
+
+      const activeProcess = activeProcesses.get(sessionId)
+      if (activeProcess) {
+        // Send permission response to Claude process
+        activeProcess.claude.sendPermissionResponse(requestId, allow, updatedInput)
+        activeProcess.pendingPermission = null
+      } else {
+        console.log(`[server] No active process found for session ${sessionId}`)
+      }
+      return
     }
   },
 

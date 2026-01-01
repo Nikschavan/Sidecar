@@ -9,12 +9,28 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import type { ClaudeMessage } from '@sidecar/shared'
 
+/**
+ * Permission request from Claude (control_request message)
+ */
+export interface PermissionRequest {
+  requestId: string
+  toolName: string
+  toolUseId: string
+  input: Record<string, unknown>
+  permissionSuggestions?: Array<{
+    type: string
+    mode?: string
+    destination?: string
+  }>
+}
+
 export interface ClaudeProcess {
   child: ChildProcessWithoutNullStreams
   sessionId: string | null
   send: (text: string) => void
-  sendPermissionResponse: (tool: string, allow: boolean, always?: boolean) => void
+  sendPermissionResponse: (requestId: string, allow: boolean, updatedInput?: Record<string, unknown>) => void
   onMessage: (callback: (msg: ClaudeMessage) => void) => void
+  onPermissionRequest: (callback: (req: PermissionRequest) => void) => void
   onExit: (callback: (code: number | null) => void) => void
 }
 
@@ -23,17 +39,18 @@ export interface SpawnOptions {
   resume?: string
   onMessage?: (msg: ClaudeMessage) => void
   onSessionId?: (id: string) => void
+  onPermissionRequest?: (req: PermissionRequest) => void
   onExit?: (code: number | null) => void
 }
 
 /**
- * Spawn Claude in JSON streaming mode
+ * Spawn Claude in JSON streaming mode with permission handling
  */
 export function spawnClaude(options: SpawnOptions): ClaudeProcess {
   const args = [
-    '--print',
     '--output-format', 'stream-json',
     '--input-format', 'stream-json',
+    '--permission-prompt-tool', 'stdio',
     '--verbose'
   ]
 
@@ -52,10 +69,15 @@ export function spawnClaude(options: SpawnOptions): ClaudeProcess {
 
   let sessionId: string | null = null
   const messageCallbacks: Array<(msg: ClaudeMessage) => void> = []
+  const permissionCallbacks: Array<(req: PermissionRequest) => void> = []
   const exitCallbacks: Array<(code: number | null) => void> = []
 
   if (options.onMessage) {
     messageCallbacks.push(options.onMessage)
+  }
+
+  if (options.onPermissionRequest) {
+    permissionCallbacks.push(options.onPermissionRequest)
   }
 
   if (options.onExit) {
@@ -69,7 +91,22 @@ export function spawnClaude(options: SpawnOptions): ClaudeProcess {
     if (!line.trim()) return
 
     try {
-      const msg = JSON.parse(line) as ClaudeMessage
+      const msg = JSON.parse(line)
+
+      // Handle control_request (permission request)
+      if (msg.type === 'control_request') {
+        const permReq: PermissionRequest = {
+          requestId: msg.request_id,
+          toolName: msg.request.tool_name,
+          toolUseId: msg.request.tool_use_id,
+          input: msg.request.input,
+          permissionSuggestions: msg.request.permission_suggestions
+        }
+        for (const cb of permissionCallbacks) {
+          cb(permReq)
+        }
+        return
+      }
 
       // Capture session ID
       if (msg.type === 'system' && 'subtype' in msg && msg.subtype === 'init') {
@@ -80,7 +117,7 @@ export function spawnClaude(options: SpawnOptions): ClaudeProcess {
       }
 
       for (const cb of messageCallbacks) {
-        cb(msg)
+        cb(msg as ClaudeMessage)
       }
     } catch {
       // Non-JSON output, ignore
@@ -114,21 +151,42 @@ export function spawnClaude(options: SpawnOptions): ClaudeProcess {
       }
       child.stdin.write(JSON.stringify(msg) + '\n')
     },
-    sendPermissionResponse(tool: string, allow: boolean, always?: boolean) {
-      const msg = {
-        type: 'permission_response',
-        permission_response: {
-          permission_grant: {
-            tool,
-            allow,
-            ...(always !== undefined ? { always } : {})
+    sendPermissionResponse(requestId: string, allow: boolean, updatedInput?: Record<string, unknown>) {
+      if (allow) {
+        // Send approval with control_response format
+        const msg = {
+          type: 'control_response',
+          response: {
+            subtype: 'success',
+            request_id: requestId,
+            response: {
+              behavior: 'allow',
+              updatedInput: updatedInput || {}
+            }
           }
         }
+        child.stdin.write(JSON.stringify(msg) + '\n')
+      } else {
+        // Send denial
+        const msg = {
+          type: 'control_response',
+          response: {
+            subtype: 'success',
+            request_id: requestId,
+            response: {
+              behavior: 'deny',
+              message: 'User denied permission'
+            }
+          }
+        }
+        child.stdin.write(JSON.stringify(msg) + '\n')
       }
-      child.stdin.write(JSON.stringify(msg) + '\n')
     },
     onMessage(callback) {
       messageCallbacks.push(callback)
+    },
+    onPermissionRequest(callback) {
+      permissionCallbacks.push(callback)
     },
     onExit(callback) {
       exitCallbacks.push(callback)

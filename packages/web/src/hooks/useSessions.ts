@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import type { ChatMessage } from '@sidecar/shared'
 
 interface Project {
@@ -31,8 +31,16 @@ interface SessionMessagesResponse {
 }
 
 interface PendingPermission {
-  tool: string
-  description: string
+  requestId: string
+  sessionId: string
+  toolName: string
+  toolUseId: string
+  input: Record<string, unknown>
+  permissionSuggestions?: Array<{
+    type: string
+    mode?: string
+    destination?: string
+  }>
 }
 
 export function useSessions(apiUrl: string) {
@@ -44,6 +52,10 @@ export function useSessions(apiUrl: string) {
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
   const [pendingPermission, setPendingPermission] = useState<PendingPermission | null>(null)
+  const wsRef = useRef<WebSocket | null>(null)
+
+  // WebSocket URL from API URL
+  const wsUrl = apiUrl.replace('http', 'ws')
 
   // Fetch all projects
   const fetchProjects = useCallback(async () => {
@@ -116,27 +128,8 @@ export function useSessions(apiUrl: string) {
       })
 
       if (res.ok) {
-        const data = await res.json()
-        // Check if any response contains a tool_use that needs permission
-        if (data.responses) {
-          for (const response of data.responses) {
-            if (response.type === 'assistant' && response.message?.content) {
-              for (const block of response.message.content) {
-                if (block.type === 'tool_use' && block.name) {
-                  // Check if Claude is waiting (no result message received)
-                  const hasResult = data.responses.some((r: { type: string }) => r.type === 'result')
-                  if (!hasResult) {
-                    setPendingPermission({
-                      tool: block.name,
-                      description: `${block.name}: ${JSON.stringify(block.input || {}).slice(0, 100)}`
-                    })
-                  }
-                }
-              }
-            }
-          }
-        }
-        // Refresh messages to get Claude's response
+        // Permission requests will come via WebSocket
+        // Just refresh messages to get Claude's response
         await fetchMessages()
       }
     } catch (e) {
@@ -163,27 +156,73 @@ export function useSessions(apiUrl: string) {
     setPendingPermission(null)
   }, [])
 
-  // Send permission response
-  const respondToPermission = useCallback(async (allow: boolean, always?: boolean) => {
-    if (!currentSessionId || !pendingPermission) return
+  // Send permission response via WebSocket
+  const respondToPermission = useCallback(async (allow: boolean) => {
+    if (!pendingPermission) return
 
-    try {
-      await fetch(apiUrl + '/api/claude/sessions/' + currentSessionId + '/permission', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tool: pendingPermission.tool,
-          allow,
-          always
-        })
-      })
+    const ws = wsRef.current
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      // Send via WebSocket
+      ws.send(JSON.stringify({
+        type: 'permission_response',
+        sessionId: pendingPermission.sessionId,
+        requestId: pendingPermission.requestId,
+        allow,
+        updatedInput: allow ? pendingPermission.input : undefined
+      }))
       setPendingPermission(null)
-      // Refresh messages to see result
-      await fetchMessages()
-    } catch (e) {
-      console.error('Failed to respond to permission:', e)
+    } else {
+      console.error('WebSocket not connected')
     }
-  }, [apiUrl, currentSessionId, pendingPermission, fetchMessages])
+  }, [pendingPermission])
+
+  // WebSocket connection for real-time permission requests
+  useEffect(() => {
+    const ws = new WebSocket(wsUrl)
+    wsRef.current = ws
+
+    ws.onopen = () => {
+      console.log('[useSessions] WebSocket connected')
+    }
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data)
+
+        // Handle permission request from server
+        if (msg.type === 'permission_request') {
+          console.log('[useSessions] Permission request:', msg.toolName, msg.input)
+          setPendingPermission({
+            requestId: msg.requestId,
+            sessionId: msg.sessionId,
+            toolName: msg.toolName,
+            toolUseId: msg.toolUseId,
+            input: msg.input,
+            permissionSuggestions: msg.permissionSuggestions
+          })
+        }
+
+        // Handle claude message (refresh messages)
+        if (msg.type === 'claude_message') {
+          fetchMessages()
+        }
+      } catch (e) {
+        console.error('[useSessions] Failed to parse message:', e)
+      }
+    }
+
+    ws.onclose = () => {
+      console.log('[useSessions] WebSocket disconnected')
+    }
+
+    ws.onerror = (err) => {
+      console.error('[useSessions] WebSocket error:', err)
+    }
+
+    return () => {
+      ws.close()
+    }
+  }, [wsUrl, fetchMessages])
 
   // Initial fetch - load projects
   useEffect(() => {

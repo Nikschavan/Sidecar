@@ -52,6 +52,21 @@ export interface ServerClaudeMessageMessage {
   sessionId?: string
 }
 
+// Permission request from Claude (needs user approval)
+export interface ServerPermissionRequestMessage {
+  type: 'permission_request'
+  sessionId: string
+  requestId: string
+  toolName: string
+  toolUseId: string
+  input: Record<string, unknown>
+  permissionSuggestions?: Array<{
+    type: string
+    mode?: string
+    destination?: string
+  }>
+}
+
 export type ServerMessage =
   | ServerConnectedMessage
   | ServerHistoryMessage
@@ -62,6 +77,7 @@ export type ServerMessage =
   | ServerSwitchToRemoteMessage
   | ServerSessionUpdateMessage
   | ServerClaudeMessageMessage
+  | ServerPermissionRequestMessage
 
 // Client -> Server messages
 export interface ClientSendMessage {
@@ -113,6 +129,15 @@ export interface ClientTakeOverMessage {
   timestamp: string
 }
 
+// Permission response from user (approve/deny)
+export interface ClientPermissionResponseMessage {
+  type: 'permission_response'
+  sessionId: string
+  requestId: string
+  allow: boolean
+  updatedInput?: Record<string, unknown>
+}
+
 export type ClientMessage =
   | ClientSendMessage
   | ClientSubscribeMessage
@@ -123,3 +148,4 @@ export type ClientMessage =
   | ClientRegisterPhoneMessage
   | ClientPhoneSendMessage
   | ClientTakeOverMessage
+  | ClientPermissionResponseMessage
