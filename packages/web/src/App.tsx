@@ -1,17 +1,42 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useSessions } from './hooks/useSessions'
-import { Header } from './components/Header'
-import { ChatView } from './components/ChatView'
-import { InputBar } from './components/InputBar'
-import { SessionList } from './components/SessionList'
+import { HomeScreen } from './screens/HomeScreen'
+import { ChatScreen } from './screens/ChatScreen'
 
 // Get API URL from current location or default to localhost
 const API_URL = window.location.hostname === 'localhost'
   ? 'http://localhost:3456'
   : `http://${window.location.hostname}:3456`
 
+// Simple hash-based router
+function useRouter() {
+  const [route, setRoute] = useState(() => parseHash(window.location.hash))
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      setRoute(parseHash(window.location.hash))
+    }
+    window.addEventListener('hashchange', handleHashChange)
+    return () => window.removeEventListener('hashchange', handleHashChange)
+  }, [])
+
+  return route
+}
+
+function parseHash(hash: string): { screen: 'home' | 'chat'; sessionId?: string } {
+  if (hash.startsWith('#/session/')) {
+    const sessionId = hash.slice('#/session/'.length)
+    return { screen: 'chat', sessionId }
+  }
+  return { screen: 'home' }
+}
+
+function navigate(path: string) {
+  window.location.hash = path
+}
+
 function App() {
-  const [showSessions, setShowSessions] = useState(false)
+  const route = useRouter()
 
   const {
     projects,
@@ -26,41 +51,43 @@ function App() {
     selectSession
   } = useSessions(API_URL)
 
-  // Simple connection status based on session data
-  const status = currentSessionId ? 'connected' : 'connecting'
+  // Sync URL session with state
+  useEffect(() => {
+    if (route.screen === 'chat' && route.sessionId && route.sessionId !== currentSessionId) {
+      selectSession(route.sessionId)
+    }
+  }, [route, currentSessionId, selectSession])
 
-  return (
-    <div className="h-full flex flex-col bg-slate-900">
-      <Header
-        projects={projects}
-        currentProject={currentProject}
-        sessionId={currentSessionId}
-        status={status}
-        onProjectChange={selectProject}
-        onSessionsClick={() => setShowSessions(true)}
-      />
+  const handleSelectSession = (sessionId: string) => {
+    selectSession(sessionId)
+    navigate(`/session/${sessionId}`)
+  }
 
-      <ChatView
+  const handleBack = () => {
+    navigate('/')
+  }
+
+  if (route.screen === 'chat' && route.sessionId) {
+    return (
+      <ChatScreen
+        sessionId={route.sessionId}
         messages={messages}
         loading={loading}
         sending={sending}
-      />
-
-      <InputBar
         onSend={sendMessage}
-        disabled={sending || !currentSessionId}
-        placeholder={currentSessionId ? 'Message Claude...' : 'Select a session'}
+        onBack={handleBack}
       />
+    )
+  }
 
-      {showSessions && (
-        <SessionList
-          sessions={sessions}
-          currentSessionId={currentSessionId}
-          onSelect={selectSession}
-          onClose={() => setShowSessions(false)}
-        />
-      )}
-    </div>
+  return (
+    <HomeScreen
+      projects={projects}
+      currentProject={currentProject}
+      sessions={sessions}
+      onProjectChange={selectProject}
+      onSelectSession={handleSelectSession}
+    />
   )
 }
 
