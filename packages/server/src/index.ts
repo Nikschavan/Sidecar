@@ -8,7 +8,7 @@ import { createServer } from 'node:http'
 import { WebSocketServer } from 'ws'
 import { createWSServer, type WSClient } from './ws/server.js'
 import { createSessionManager } from './session/manager.js'
-import { listClaudeSessions, readClaudeSession, getMostRecentSession } from './claude/sessions.js'
+import { listClaudeSessions, readClaudeSession, getMostRecentSession, listAllProjects, findSessionProject } from './claude/sessions.js'
 import { spawnClaude } from './claude/spawn.js'
 import type { ClientMessage } from '@sidecar/shared'
 
@@ -64,6 +64,37 @@ const httpServer = createServer(async (req, res) => {
     return
   }
 
+  // List all projects
+  if (url.pathname === '/api/claude/projects' && req.method === 'GET') {
+    const projects = listAllProjects()
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({
+      projects: projects.map((p) => ({
+        path: p.path,
+        name: p.path.split('/').pop() || p.path,
+        modifiedAt: p.modifiedAt.toISOString()
+      }))
+    }))
+    return
+  }
+
+  // List Claude sessions for a specific project (by encoded path)
+  const projectSessionsMatch = url.pathname.match(/^\/api\/claude\/projects\/(.+)\/sessions$/)
+  if (projectSessionsMatch && req.method === 'GET') {
+    const projectPath = decodeURIComponent(projectSessionsMatch[1])
+    const sessions = listClaudeSessions(projectPath)
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({
+      projectPath,
+      sessions: sessions.map((s) => ({
+        id: s.id,
+        modifiedAt: s.modifiedAt.toISOString(),
+        size: s.size
+      }))
+    }))
+    return
+  }
+
   // List Claude sessions (read directly from Claude's files)
   if (url.pathname === '/api/claude/sessions' && req.method === 'GET') {
     const sessions = listClaudeSessions(CWD)
@@ -81,15 +112,17 @@ const httpServer = createServer(async (req, res) => {
     return
   }
 
-  // Get Claude session messages
+  // Get Claude session messages (auto-finds project)
   const claudeSessionMatch = url.pathname.match(/^\/api\/claude\/sessions\/([^/]+)$/)
   if (claudeSessionMatch && req.method === 'GET') {
     const sessionId = claudeSessionMatch[1]
-    const messages = readClaudeSession(CWD, sessionId)
+    // Try to find which project this session belongs to
+    const projectPath = findSessionProject(sessionId) || CWD
+    const messages = readClaudeSession(projectPath, sessionId)
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({
       sessionId,
-      cwd: CWD,
+      projectPath,
       messageCount: messages.length,
       messages
     }))

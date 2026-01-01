@@ -73,6 +73,71 @@ export function getMostRecentSession(cwd: string): string | null {
   return sessions.length > 0 ? sessions[0].id : null
 }
 
+/**
+ * Decode a Claude directory name back to project path
+ * -Users-foo-project -> /Users/foo/project
+ */
+export function decodeProjectPath(encoded: string): string {
+  return encoded.replace(/^-/, '/').replace(/-/g, '/')
+}
+
+/**
+ * List all Claude projects (directories in ~/.claude/projects)
+ */
+export function listAllProjects(): Array<{
+  path: string
+  encodedPath: string
+  name: string
+  modifiedAt: Date
+}> {
+  if (!existsSync(CLAUDE_DIR)) {
+    return []
+  }
+
+  const dirs = readdirSync(CLAUDE_DIR)
+  const projects: Array<{ path: string; encodedPath: string; name: string; modifiedAt: Date }> = []
+
+  for (const dir of dirs) {
+    const dirPath = join(CLAUDE_DIR, dir)
+    try {
+      const stats = statSync(dirPath)
+      if (stats.isDirectory()) {
+        const decodedPath = decodeProjectPath(dir)
+        projects.push({
+          path: decodedPath,
+          encodedPath: dir,
+          name: decodedPath.split('/').pop() || decodedPath,
+          modifiedAt: stats.mtime
+        })
+      }
+    } catch {
+      // Skip if can't read
+    }
+  }
+
+  // Sort by most recently modified
+  projects.sort((a, b) => b.modifiedAt.getTime() - a.modifiedAt.getTime())
+
+  return projects
+}
+
+/**
+ * Find which project a session belongs to
+ */
+export function findSessionProject(sessionId: string): string | null {
+  const projects = listAllProjects()
+
+  for (const project of projects) {
+    const projectDir = getProjectDir(project.path)
+    const sessionFile = join(projectDir, `${sessionId}.jsonl`)
+    if (existsSync(sessionFile)) {
+      return project.path
+    }
+  }
+
+  return null
+}
+
 interface ContentBlock {
   type: string
   text?: string
