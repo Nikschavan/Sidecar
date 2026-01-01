@@ -43,8 +43,13 @@ export interface ClientSendMessage {
   text: string
 }
 
+export interface ClientSubscribeMessage {
+  type: 'subscribe'
+  sessionId: string
+}
+
 export interface ClientPingMessage {
   type: 'ping'
 }
 
-export type ClientMessage = ClientSendMessage | ClientPingMessage
+export type ClientMessage = ClientSendMessage | ClientSubscribeMessage | ClientPingMessage
