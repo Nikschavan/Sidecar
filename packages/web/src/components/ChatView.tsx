@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react'
+import Markdown from 'react-markdown'
 import type { ChatMessage } from '@sidecar/shared'
 import { ToolCard } from './ToolCard'
 
@@ -98,8 +99,15 @@ function MessageBubble({ message }: { message: ChatMessage }) {
   return (
     <div className="space-y-3">
       {message.content && (
-        <div className="whitespace-pre-wrap break-words text-[15px] text-claude-text leading-relaxed">
-          {message.content}
+        <div className="prose prose-sm prose-invert max-w-none text-claude-text leading-relaxed
+          prose-p:my-2 prose-p:leading-relaxed
+          prose-headings:text-claude-text prose-headings:font-semibold
+          prose-strong:text-claude-text prose-strong:font-semibold
+          prose-code:text-claude-coral prose-code:bg-claude-surface prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm prose-code:before:content-none prose-code:after:content-none
+          prose-pre:bg-claude-surface prose-pre:border prose-pre:border-claude-border prose-pre:rounded-lg
+          prose-li:my-0.5
+          prose-ol:my-2 prose-ul:my-2">
+          <Markdown>{message.content}</Markdown>
         </div>
       )}
 

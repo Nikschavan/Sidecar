@@ -21,6 +21,7 @@ export default {
           'accent-hover': '#d97a5a',
           'tool-name': '#e07a5f',
           'user-bubble': '#3d3630',
+          coral: '#e07a5f',
         }
       },
       fontFamily: {
@@ -29,5 +30,7 @@ export default {
       }
     },
   },
-  plugins: [],
+  plugins: [
+    require('@tailwindcss/typography'),
+  ],
 }
