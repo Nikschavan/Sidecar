@@ -2,6 +2,7 @@ import type { ChatMessage } from '@sidecar/shared'
 import { ChatView } from '../components/ChatView'
 import { InputBar } from '../components/InputBar'
 import { AskUserQuestion } from '../components/AskUserQuestion'
+import { PermissionDialog } from '../components/PermissionDialog'
 
 interface PendingPermission {
   requestId: string
@@ -26,7 +27,7 @@ interface ChatScreenProps {
   pendingPermission: PendingPermission | null
   onSend: (text: string) => void
   onBack: () => void
-  onPermissionResponse: (allow: boolean, options?: { answers?: Record<string, string[]>; allowAll?: boolean }) => void
+  onPermissionResponse: (allow: boolean, options?: { answers?: Record<string, string[]>; allowAll?: boolean; customMessage?: string }) => void
 }
 
 export function ChatScreen({
@@ -83,38 +84,13 @@ export function ChatScreen({
         />
       )}
 
-      {/* Generic permission prompt */}
+      {/* Permission dialog */}
       {pendingPermission && pendingPermission.toolName !== 'AskUserQuestion' && (
-        <div className="bg-claude-bg-light border-t border-claude-border p-4">
-          <div className="max-w-3xl mx-auto">
-            <div className="text-sm text-claude-text mb-2">
-              Claude wants to use <span className="font-semibold text-claude-tool-name">{pendingPermission.toolName}</span>
-            </div>
-            <div className="text-xs text-claude-text-muted mb-3 font-mono bg-claude-bg p-2 rounded-lg overflow-x-auto max-h-24 overflow-y-auto">
-              {JSON.stringify(pendingPermission.input, null, 2)}
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => onPermissionResponse(true)}
-                className="flex-1 bg-green-700 hover:bg-green-600 text-white py-2.5 px-4 rounded-lg text-sm font-medium transition-colors"
-              >
-                Allow
-              </button>
-              <button
-                onClick={() => onPermissionResponse(true, { allowAll: true })}
-                className="flex-1 bg-blue-700 hover:bg-blue-600 text-white py-2.5 px-4 rounded-lg text-sm font-medium transition-colors"
-              >
-                Allow All
-              </button>
-              <button
-                onClick={() => onPermissionResponse(false)}
-                className="flex-1 bg-red-700 hover:bg-red-600 text-white py-2.5 px-4 rounded-lg text-sm font-medium transition-colors"
-              >
-                Deny
-              </button>
-            </div>
-          </div>
-        </div>
+        <PermissionDialog
+          toolName={pendingPermission.toolName}
+          input={pendingPermission.input}
+          onRespond={(allow, options) => onPermissionResponse(allow, options)}
+        />
       )}
 
       {/* Input bar */}
