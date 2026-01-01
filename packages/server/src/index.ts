@@ -165,12 +165,20 @@ const httpServer = createServer(async (req, res) => {
       return
     }
 
-    console.log(`[server] Sending to Claude session ${sessionId}: ${text.slice(0, 50)}...`)
+    // Find the project this session belongs to
+    const projectPath = findSessionProject(sessionId)
+    if (!projectPath) {
+      res.writeHead(404, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Session not found in any project' }))
+      return
+    }
+
+    console.log(`[server] Sending to Claude session ${sessionId} in ${projectPath}: ${text.slice(0, 50)}...`)
 
     // Spawn Claude with --resume to continue the session
     const responses: unknown[] = []
     const claude = spawnClaude({
-      cwd: CWD,
+      cwd: projectPath,
       resume: sessionId,
       onMessage: (msg) => {
         responses.push(msg)
@@ -240,11 +248,14 @@ const httpServer = createServer(async (req, res) => {
       return
     }
 
-    console.log(`[server] Sending to most recent session ${sessionId}: ${text.slice(0, 50)}...`)
+    // Find the project this session belongs to
+    const projectPath = findSessionProject(sessionId) || CWD
+
+    console.log(`[server] Sending to most recent session ${sessionId} in ${projectPath}: ${text.slice(0, 50)}...`)
 
     const responses: unknown[] = []
     const claude = spawnClaude({
-      cwd: CWD,
+      cwd: projectPath,
       resume: sessionId,
       onMessage: (msg) => {
         responses.push(msg)
