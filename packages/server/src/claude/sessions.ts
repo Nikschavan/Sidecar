@@ -355,69 +355,44 @@ export interface PendingToolCall {
 }
 
 /**
+ * Session data including messages and pending tool calls
+ */
+export interface SessionData {
+  messages: ChatMessage[]
+  pendingToolCalls: PendingToolCall[]
+}
+
+/**
+ * Read session data (messages and pending tool calls) in a single file read
+ */
+export function readSessionData(cwd: string, sessionId: string): SessionData {
+  const messages = readClaudeSession(cwd, sessionId)
+
+  // Extract pending tool calls from messages (tool calls without results)
+  const pendingToolCalls: PendingToolCall[] = []
+  for (const msg of messages) {
+    if (msg.toolCalls) {
+      for (const tool of msg.toolCalls) {
+        if (tool.result === undefined) {
+          pendingToolCalls.push({
+            id: tool.id,
+            name: tool.name,
+            input: tool.input,
+            timestamp: msg.timestamp || new Date().toISOString()
+          })
+        }
+      }
+    }
+  }
+
+  return { messages, pendingToolCalls }
+}
+
+/**
  * Detect tool calls waiting for permission (tool_use without matching tool_result)
  */
 export function getPendingToolCalls(cwd: string, sessionId: string): PendingToolCall[] {
-  const projectDir = getProjectDir(cwd)
-  const sessionFile = join(projectDir, `${sessionId}.jsonl`)
-
-  if (!existsSync(sessionFile)) {
-    return []
-  }
-
-  const content = readFileSync(sessionFile, 'utf-8')
-  const lines = content.trim().split('\n')
-
-  // Track all tool_use IDs and tool_result IDs
-  const toolUses = new Map<string, PendingToolCall>()
-  const toolResults = new Set<string>()
-
-  for (const line of lines) {
-    try {
-      const entry = JSON.parse(line)
-
-      // Find tool_use blocks in assistant messages
-      if (entry.type === 'assistant' && entry.message?.content) {
-        const content = entry.message.content
-        if (Array.isArray(content)) {
-          for (const block of content) {
-            if (block.type === 'tool_use' && block.id) {
-              toolUses.set(block.id, {
-                id: block.id,
-                name: block.name || 'unknown',
-                input: block.input || {},
-                timestamp: entry.timestamp || new Date().toISOString()
-              })
-            }
-          }
-        }
-      }
-
-      // Find tool_result blocks in user messages
-      if (entry.type === 'user' && entry.message?.content) {
-        const content = entry.message.content
-        if (Array.isArray(content)) {
-          for (const block of content) {
-            if (block.type === 'tool_result' && block.tool_use_id) {
-              toolResults.add(block.tool_use_id)
-            }
-          }
-        }
-      }
-    } catch {
-      // Skip malformed lines
-    }
-  }
-
-  // Find tool_use without matching tool_result
-  const pending: PendingToolCall[] = []
-  for (const [id, toolUse] of toolUses) {
-    if (!toolResults.has(id)) {
-      pending.push(toolUse)
-    }
-  }
-
-  return pending
+  return readSessionData(cwd, sessionId).pendingToolCalls
 }
 
 /**

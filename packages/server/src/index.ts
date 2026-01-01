@@ -8,7 +8,7 @@ import { createServer } from 'node:http'
 import { WebSocketServer } from 'ws'
 import { createWSServer, type WSClient } from './ws/server.js'
 import { createSessionManager } from './session/manager.js'
-import { listClaudeSessions, readClaudeSession, getMostRecentSession, listAllProjects, findSessionProject, getPendingToolCalls, type PendingToolCall } from './claude/sessions.js'
+import { listClaudeSessions, readClaudeSession, getMostRecentSession, listAllProjects, findSessionProject, readSessionData, type PendingToolCall } from './claude/sessions.js'
 import { spawnClaude, type ClaudeProcess, type PermissionRequest } from './claude/spawn.js'
 import type { ClientMessage } from '@sidecar/shared'
 
@@ -35,8 +35,8 @@ const activeProcesses = new Map<string, ActiveProcess>()
 // Track allowed tools per session (when user clicks "Allow All")
 const allowedToolsBySession = new Map<string, Set<string>>()
 
-// Track which sessions clients are watching (for file-based permission detection)
-const watchedSessions = new Map<string, { projectPath: string; lastPendingIds: Set<string> }>()
+// Track which sessions clients are watching (for file-based permission detection and message updates)
+const watchedSessions = new Map<string, { projectPath: string; lastPendingIds: Set<string>; lastMessageCount: number }>()
 
 // Track pending file-based permissions that were broadcast (waiting for user response)
 const pendingFilePermissions = new Map<string, PendingToolCall>()
@@ -644,9 +644,12 @@ const ws = createWSServer(wss, {
         // Don't reset if already watching - preserve lastPendingIds
         if (!watchedSessions.has(sessionId)) {
           console.log(`[server] Client ${client.id} watching session ${sessionId}`)
+          // Get initial message count to avoid broadcasting existing messages
+          const existingMessages = readClaudeSession(projectPath, sessionId)
           watchedSessions.set(sessionId, {
             projectPath,
-            lastPendingIds: new Set()
+            lastPendingIds: new Set(),
+            lastMessageCount: existingMessages.length
           })
         } else {
           console.log(`[server] Client ${client.id} already watching session ${sessionId}`)
@@ -737,18 +740,36 @@ sessionManager.onSessionReady((sessionId, claudeSessionId) => {
   console.log(`[server] Session ${sessionId} ready with Claude session ${claudeSessionId}`)
 })
 
-// Poll watched sessions for pending permissions (file-based detection)
+// Poll watched sessions for pending permissions and new messages (file-based detection)
+// Uses readSessionData() to read file once for both messages and permissions
 setInterval(() => {
-  for (const [sessionId, { projectPath, lastPendingIds }] of watchedSessions) {
-    // Skip if there's already an active process for this session
+  for (const [sessionId, watchedSession] of watchedSessions) {
+    const { projectPath, lastPendingIds } = watchedSession
+
+    // Read session data once (messages + pending tool calls)
+    let sessionData
+    try {
+      sessionData = readSessionData(projectPath, sessionId)
+    } catch (e) {
+      continue // Skip this session if file can't be read
+    }
+
+    // Check for new messages (from terminal CLI)
+    if (sessionData.messages.length > watchedSession.lastMessageCount) {
+      const newMessages = sessionData.messages.slice(watchedSession.lastMessageCount)
+      for (const message of newMessages) {
+        ws.broadcast({ type: 'claude_message', message, sessionId })
+      }
+      watchedSession.lastMessageCount = sessionData.messages.length
+    }
+
+    // Skip permission detection if there's already an active process for this session
     if (activeProcesses.has(sessionId)) continue
 
     // Skip if we're currently approving a permission for this session
     if (sessionsBeingApproved.has(sessionId)) continue
 
-    const pending = getPendingToolCalls(projectPath, sessionId)
-
-    for (const tool of pending) {
+    for (const tool of sessionData.pendingToolCalls) {
       // Skip if we already broadcast this one
       if (lastPendingIds.has(tool.id)) continue
 

@@ -249,7 +249,8 @@ export function useSessions(apiUrl: string) {
         }
 
         // Handle claude message - append to existing messages instead of full refetch
-        if (msg.type === 'claude_message' && msg.message) {
+        // Only update if message is for the current session
+        if (msg.type === 'claude_message' && msg.message && (!msg.sessionId || msg.sessionId === currentSessionId)) {
           setMessages(prev => {
             // Check if message already exists (by id) to avoid duplicates
             const exists = prev.some(m => m.id === msg.message.id)
