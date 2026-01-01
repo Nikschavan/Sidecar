@@ -65,6 +65,7 @@ export interface ServerPermissionRequestMessage {
     mode?: string
     destination?: string
   }>
+  source?: 'process' | 'file' // 'process' = active spawn, 'file' = detected from session file
 }
 
 export type ServerMessage =
@@ -138,6 +139,12 @@ export interface ClientPermissionResponseMessage {
   updatedInput?: Record<string, unknown>
 }
 
+// Watch session for file-based permission detection
+export interface ClientWatchSessionMessage {
+  type: 'watch_session'
+  sessionId: string
+}
+
 export type ClientMessage =
   | ClientSendMessage
   | ClientSubscribeMessage
@@ -149,3 +156,4 @@ export type ClientMessage =
   | ClientPhoneSendMessage
   | ClientTakeOverMessage
   | ClientPermissionResponseMessage
+  | ClientWatchSessionMessage

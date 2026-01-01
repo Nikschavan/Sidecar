@@ -41,6 +41,7 @@ interface PendingPermission {
     mode?: string
     destination?: string
   }>
+  source?: 'process' | 'file'
 }
 
 export function useSessions(apiUrl: string) {
@@ -154,6 +155,12 @@ export function useSessions(apiUrl: string) {
     setCurrentSessionId(sessionId)
     setMessages([])
     setPendingPermission(null)
+
+    // Tell server to watch this session for file-based permissions
+    const ws = wsRef.current
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'watch_session', sessionId }))
+    }
   }, [])
 
   // Send permission response via WebSocket
@@ -192,6 +199,10 @@ export function useSessions(apiUrl: string) {
 
     ws.onopen = () => {
       console.log('[useSessions] WebSocket connected')
+      // If we have a current session, tell server to watch it
+      if (currentSessionId) {
+        ws.send(JSON.stringify({ type: 'watch_session', sessionId: currentSessionId }))
+      }
     }
 
     ws.onmessage = (event) => {
@@ -200,14 +211,15 @@ export function useSessions(apiUrl: string) {
 
         // Handle permission request from server
         if (msg.type === 'permission_request') {
-          console.log('[useSessions] Permission request:', msg.toolName, msg.input)
+          console.log('[useSessions] Permission request:', msg.toolName, msg.input, 'source:', msg.source)
           setPendingPermission({
             requestId: msg.requestId,
             sessionId: msg.sessionId,
             toolName: msg.toolName,
             toolUseId: msg.toolUseId,
             input: msg.input,
-            permissionSuggestions: msg.permissionSuggestions
+            permissionSuggestions: msg.permissionSuggestions,
+            source: msg.source
           })
         }
 
@@ -231,7 +243,7 @@ export function useSessions(apiUrl: string) {
     return () => {
       ws.close()
     }
-  }, [wsUrl, fetchMessages])
+  }, [wsUrl, fetchMessages, currentSessionId])
 
   // Initial fetch - load projects
   useEffect(() => {

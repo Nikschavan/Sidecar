@@ -14,6 +14,7 @@ interface PendingPermission {
     mode?: string
     destination?: string
   }>
+  source?: 'process' | 'file' // 'file' = detected from terminal session
 }
 
 interface ChatScreenProps {

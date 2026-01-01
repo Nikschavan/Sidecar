@@ -345,6 +345,82 @@ export function readClaudeSession(cwd: string, sessionId: string): ChatMessage[]
 }
 
 /**
+ * Pending tool call (waiting for permission)
+ */
+export interface PendingToolCall {
+  id: string
+  name: string
+  input: unknown
+  timestamp: string
+}
+
+/**
+ * Detect tool calls waiting for permission (tool_use without matching tool_result)
+ */
+export function getPendingToolCalls(cwd: string, sessionId: string): PendingToolCall[] {
+  const projectDir = getProjectDir(cwd)
+  const sessionFile = join(projectDir, `${sessionId}.jsonl`)
+
+  if (!existsSync(sessionFile)) {
+    return []
+  }
+
+  const content = readFileSync(sessionFile, 'utf-8')
+  const lines = content.trim().split('\n')
+
+  // Track all tool_use IDs and tool_result IDs
+  const toolUses = new Map<string, PendingToolCall>()
+  const toolResults = new Set<string>()
+
+  for (const line of lines) {
+    try {
+      const entry = JSON.parse(line)
+
+      // Find tool_use blocks in assistant messages
+      if (entry.type === 'assistant' && entry.message?.content) {
+        const content = entry.message.content
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            if (block.type === 'tool_use' && block.id) {
+              toolUses.set(block.id, {
+                id: block.id,
+                name: block.name || 'unknown',
+                input: block.input || {},
+                timestamp: entry.timestamp || new Date().toISOString()
+              })
+            }
+          }
+        }
+      }
+
+      // Find tool_result blocks in user messages
+      if (entry.type === 'user' && entry.message?.content) {
+        const content = entry.message.content
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            if (block.type === 'tool_result' && block.tool_use_id) {
+              toolResults.add(block.tool_use_id)
+            }
+          }
+        }
+      }
+    } catch {
+      // Skip malformed lines
+    }
+  }
+
+  // Find tool_use without matching tool_result
+  const pending: PendingToolCall[] = []
+  for (const [id, toolUse] of toolUses) {
+    if (!toolResults.has(id)) {
+      pending.push(toolUse)
+    }
+  }
+
+  return pending
+}
+
+/**
  * Watch a Claude session file for changes
  */
 export function watchClaudeSession(

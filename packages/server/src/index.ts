@@ -8,7 +8,7 @@ import { createServer } from 'node:http'
 import { WebSocketServer } from 'ws'
 import { createWSServer, type WSClient } from './ws/server.js'
 import { createSessionManager } from './session/manager.js'
-import { listClaudeSessions, readClaudeSession, getMostRecentSession, listAllProjects, findSessionProject } from './claude/sessions.js'
+import { listClaudeSessions, readClaudeSession, getMostRecentSession, listAllProjects, findSessionProject, getPendingToolCalls, type PendingToolCall } from './claude/sessions.js'
 import { spawnClaude, type ClaudeProcess, type PermissionRequest } from './claude/spawn.js'
 import type { ClientMessage } from '@sidecar/shared'
 
@@ -34,6 +34,15 @@ const activeProcesses = new Map<string, ActiveProcess>()
 
 // Track allowed tools per session (when user clicks "Allow All")
 const allowedToolsBySession = new Map<string, Set<string>>()
+
+// Track which sessions clients are watching (for file-based permission detection)
+const watchedSessions = new Map<string, { projectPath: string; lastPendingIds: Set<string> }>()
+
+// Track pending file-based permissions that were broadcast (waiting for user response)
+const pendingFilePermissions = new Map<string, PendingToolCall>()
+
+// Track sessions currently being approved via resume (to avoid re-detecting during approval)
+const sessionsBeingApproved = new Set<string>()
 
 // Track CLI client and phone clients for relay mode
 let cliClient: WSClient | null = null
@@ -604,17 +613,37 @@ const ws = createWSServer(wss, {
       sessionManager.sendMessage(sessionId, message.text)
     }
 
+    // Handle watch_session - client wants to watch a Claude session for permissions
+    if (message.type === 'watch_session') {
+      const { sessionId } = message as { sessionId: string }
+      const projectPath = findSessionProject(sessionId)
+      if (projectPath) {
+        // Don't reset if already watching - preserve lastPendingIds
+        if (!watchedSessions.has(sessionId)) {
+          console.log(`[server] Client ${client.id} watching session ${sessionId}`)
+          watchedSessions.set(sessionId, {
+            projectPath,
+            lastPendingIds: new Set()
+          })
+        } else {
+          console.log(`[server] Client ${client.id} already watching session ${sessionId}`)
+        }
+      }
+      return
+    }
+
     // Handle permission response from web client
     if (message.type === 'permission_response') {
-      const { sessionId, requestId, allow, allowAll, toolName, updatedInput } = message as {
+      const { sessionId, requestId, allow, allowAll, toolName, updatedInput, source } = message as {
         sessionId: string
         requestId: string
         allow: boolean
         allowAll?: boolean
         toolName?: string
         updatedInput?: Record<string, unknown>
+        source?: 'file' | 'process'
       }
-      console.log(`[server] Permission response for ${sessionId}: ${allow ? 'ALLOW' : 'DENY'}${allowAll ? ' (ALL)' : ''}, toolName=${toolName}`)
+      console.log(`[server] Permission response for ${sessionId}: ${allow ? 'ALLOW' : 'DENY'}${allowAll ? ' (ALL)' : ''}, toolName=${toolName}, source=${source}`)
 
       // Track tool as allowed if user clicked "Allow All"
       if (allow && allowAll && toolName) {
@@ -628,6 +657,23 @@ const ws = createWSServer(wss, {
         console.log(`[server] Added ${toolName} to allowed tools for session ${sessionId}`)
       }
 
+      // Check if this is a file-based permission (Claude running in terminal)
+      const pendingTool = pendingFilePermissions.get(requestId)
+      if (pendingTool) {
+        pendingFilePermissions.delete(requestId)
+        const watched = watchedSessions.get(sessionId)
+        if (watched && allow) {
+          console.log(`[server] Approving file-based permission via resume`)
+          approveToolViaResume(sessionId, watched.projectPath, pendingTool)
+        } else if (!allow) {
+          console.log(`[server] User denied file-based permission - cannot deny terminal Claude`)
+          // Note: We can't actually deny permissions for terminal Claude
+          // The terminal will still be waiting for user input
+        }
+        return
+      }
+
+      // Otherwise, it's an active process permission
       const activeProcess = activeProcesses.get(sessionId)
       if (activeProcess) {
         // Send permission response to Claude process
@@ -667,6 +713,104 @@ sessionManager.onStateChange((sessionId, state) => {
 sessionManager.onSessionReady((sessionId, claudeSessionId) => {
   console.log(`[server] Session ${sessionId} ready with Claude session ${claudeSessionId}`)
 })
+
+// Poll watched sessions for pending permissions (file-based detection)
+setInterval(() => {
+  for (const [sessionId, { projectPath, lastPendingIds }] of watchedSessions) {
+    // Skip if there's already an active process for this session
+    if (activeProcesses.has(sessionId)) continue
+
+    // Skip if we're currently approving a permission for this session
+    if (sessionsBeingApproved.has(sessionId)) continue
+
+    const pending = getPendingToolCalls(projectPath, sessionId)
+
+    for (const tool of pending) {
+      // Skip if we already broadcast this one
+      if (lastPendingIds.has(tool.id)) continue
+
+      // Check if tool is already allowed
+      const allowedTools = allowedToolsBySession.get(sessionId)
+      if (allowedTools?.has(tool.name)) {
+        console.log(`[server] Auto-approving file-detected ${tool.name} (allowed for session)`)
+        // Spawn Claude to approve this tool
+        approveToolViaResume(sessionId, projectPath, tool)
+        lastPendingIds.add(tool.id)
+        continue
+      }
+
+      console.log(`[server] File-detected pending permission: ${tool.name} (${tool.id})`)
+      lastPendingIds.add(tool.id)
+      pendingFilePermissions.set(tool.id, tool)
+
+      // Broadcast to web clients
+      ws.broadcast({
+        type: 'permission_request',
+        sessionId,
+        requestId: tool.id,
+        toolName: tool.name,
+        toolUseId: tool.id,
+        input: tool.input as Record<string, unknown>,
+        source: 'file' // Indicate this came from file detection, not active process
+      })
+    }
+  }
+}, 1000) // Check every second
+
+// Helper to approve a tool by spawning Claude with --resume
+function approveToolViaResume(sessionId: string, projectPath: string, tool: PendingToolCall) {
+  console.log(`[server] Approving ${tool.name} (id=${tool.id}) via resume for session ${sessionId}`)
+  console.log(`[server] Tool input: ${JSON.stringify(tool.input).slice(0, 200)}`)
+
+  // Mark session as being approved to prevent re-detection during approval
+  sessionsBeingApproved.add(sessionId)
+
+  const claude = spawnClaude({
+    cwd: projectPath,
+    resume: sessionId,
+    onMessage: (msg) => {
+      console.log(`[server] Resume approval got message type=${msg.type}: ${JSON.stringify(msg).slice(0, 300)}`)
+      ws.broadcast({ type: 'claude_message', message: msg, sessionId })
+    },
+    onPermissionRequest: (permReq) => {
+      // Auto-approve any permission request that comes through
+      console.log(`[server] Resume approval: got permission request for ${permReq.toolName} (requestId=${permReq.requestId})`)
+      console.log(`[server] Resume approval: auto-approving...`)
+      claude.sendPermissionResponse(permReq.requestId, true, permReq.input)
+    }
+  })
+
+  // Log raw stdout/stderr for debugging
+  claude.child.stdout?.on('data', (data: Buffer) => {
+    const str = data.toString()
+    if (!str.includes('"type"')) { // Don't log JSON messages twice
+      console.log(`[server] Resume stdout (raw): ${str.slice(0, 200)}`)
+    }
+  })
+
+  claude.child.stderr?.on('data', (data: Buffer) => {
+    console.log(`[server] Resume stderr: ${data.toString()}`)
+  })
+
+  // Send a nudge message to trigger Claude to continue
+  // This might help if Claude is waiting for input after resume
+  setTimeout(() => {
+    console.log(`[server] Sending continue nudge to resumed Claude`)
+    claude.send('continue')
+  }, 1000)
+
+  claude.onExit((code) => {
+    console.log(`[server] Resume approval process exited for ${sessionId} with code ${code}`)
+    sessionsBeingApproved.delete(sessionId)
+  })
+
+  // Timeout after 30 seconds
+  setTimeout(() => {
+    console.log(`[server] Resume approval timeout - killing process`)
+    sessionsBeingApproved.delete(sessionId)
+    claude.child.kill()
+  }, 30000)
+}
 
 // Start server
 httpServer.listen(PORT, () => {
