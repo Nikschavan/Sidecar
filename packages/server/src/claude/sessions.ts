@@ -102,6 +102,9 @@ export function listClaudeSessions(cwd: string): Array<{
       const id = file.replace('.jsonl', '')
       const name = extractSessionName(filePath)
 
+      // Skip empty/aborted sessions with no extractable name
+      if (!name) continue
+
       sessions.push({
         id,
         name,
