@@ -35,7 +35,7 @@ function extractSessionName(filePath: string): string | null {
     const content = readFileSync(filePath, 'utf-8')
     const lines = content.trim().split('\n')
 
-    let summary: string | null = null
+    let lastSummary: string | null = null
     let slug: string | null = null
     let firstUserMessage: string | null = null
 
@@ -43,9 +43,9 @@ function extractSessionName(filePath: string): string | null {
       try {
         const entry = JSON.parse(line)
 
-        // Check for summary entry (highest priority)
+        // Check for summary entry - keep the LAST one (Claude updates it as conversation evolves)
         if (entry.type === 'summary' && entry.summary) {
-          summary = entry.summary
+          lastSummary = entry.summary
         }
 
         // Check for slug
@@ -70,7 +70,7 @@ function extractSessionName(filePath: string): string | null {
       }
     }
 
-    return summary || slug || firstUserMessage || null
+    return firstUserMessage || lastSummary || slug || null
   } catch {
     return null
   }
