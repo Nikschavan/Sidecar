@@ -88,6 +88,7 @@ const httpServer = createServer(async (req, res) => {
       projectPath,
       sessions: sessions.map((s) => ({
         id: s.id,
+        name: s.name,
         modifiedAt: s.modifiedAt.toISOString(),
         size: s.size
       }))
@@ -105,6 +106,7 @@ const httpServer = createServer(async (req, res) => {
       mostRecent: recentId,
       sessions: sessions.map((s) => ({
         id: s.id,
+        name: s.name,
         modifiedAt: s.modifiedAt.toISOString(),
         size: s.size
       }))

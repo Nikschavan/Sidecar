@@ -2,6 +2,7 @@ import { formatDistanceToNow } from '../utils/time'
 
 interface Session {
   id: string
+  name: string | null
   modifiedAt: string
   size: number
 }
@@ -28,7 +29,7 @@ export function SessionList({ sessions, currentSessionId, onSelect, onClose }: S
             </svg>
           </button>
         </div>
-        
+
         <div className="overflow-y-auto flex-1 p-2">
           {sessions.length === 0 ? (
             <div className="text-center text-slate-400 py-8">
@@ -48,11 +49,16 @@ export function SessionList({ sessions, currentSessionId, onSelect, onClose }: S
                     : 'hover:bg-slate-700'
                 }`}
               >
-                <div className="font-mono text-sm text-slate-300 truncate">
-                  {session.id.slice(0, 8)}...
+                <div className="text-sm text-slate-200 truncate">
+                  {session.name || 'Untitled session'}
                 </div>
-                <div className="text-xs text-slate-500 mt-1">
-                  {formatDistanceToNow(session.modifiedAt)}
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="font-mono text-xs text-slate-500">
+                    {session.id.slice(0, 8)}
+                  </span>
+                  <span className="text-xs text-slate-500">
+                    {formatDistanceToNow(session.modifiedAt)}
+                  </span>
                 </div>
               </button>
             ))

@@ -28,10 +28,60 @@ export function getProjectDir(cwd: string): string {
 }
 
 /**
+ * Extract session name from a session file
+ */
+function extractSessionName(filePath: string): string | null {
+  try {
+    const content = readFileSync(filePath, 'utf-8')
+    const lines = content.trim().split('\n')
+
+    let summary: string | null = null
+    let slug: string | null = null
+    let firstUserMessage: string | null = null
+
+    for (const line of lines) {
+      try {
+        const entry = JSON.parse(line)
+
+        // Check for summary entry (highest priority)
+        if (entry.type === 'summary' && entry.summary) {
+          summary = entry.summary
+        }
+
+        // Check for slug
+        if (entry.slug && !slug) {
+          slug = entry.slug
+        }
+
+        // Get first user message as fallback
+        if (entry.type === 'user' && entry.message?.content && !firstUserMessage) {
+          const content = entry.message.content
+          if (typeof content === 'string') {
+            firstUserMessage = content.slice(0, 50)
+          } else if (Array.isArray(content)) {
+            const textBlock = content.find((c: { type: string; text?: string }) => c.type === 'text' && c.text)
+            if (textBlock?.text) {
+              firstUserMessage = textBlock.text.slice(0, 50)
+            }
+          }
+        }
+      } catch {
+        // Skip malformed lines
+      }
+    }
+
+    return summary || slug || firstUserMessage || null
+  } catch {
+    return null
+  }
+}
+
+/**
  * List all Claude sessions for a project
  */
 export function listClaudeSessions(cwd: string): Array<{
   id: string
+  name: string | null
   modifiedAt: Date
   size: number
 }> {
@@ -42,7 +92,7 @@ export function listClaudeSessions(cwd: string): Array<{
   }
 
   const files = readdirSync(projectDir)
-  const sessions: Array<{ id: string; modifiedAt: Date; size: number }> = []
+  const sessions: Array<{ id: string; name: string | null; modifiedAt: Date; size: number }> = []
 
   for (const file of files) {
     // Only include main session files (UUID format), not agent files
@@ -50,9 +100,11 @@ export function listClaudeSessions(cwd: string): Array<{
       const filePath = join(projectDir, file)
       const stats = statSync(filePath)
       const id = file.replace('.jsonl', '')
+      const name = extractSessionName(filePath)
 
       sessions.push({
         id,
+        name,
         modifiedAt: stats.mtime,
         size: stats.size
       })

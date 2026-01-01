@@ -9,6 +9,7 @@ interface Project {
 
 interface Session {
   id: string
+  name: string | null
   modifiedAt: string
   size: number
 }
