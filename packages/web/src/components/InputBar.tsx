@@ -1,30 +1,72 @@
 import { useState, useRef, useEffect } from 'react'
 
+export interface SlashCommand {
+  command: string
+  description: string
+}
+
 interface InputBarProps {
   onSend: (text: string) => void
   onAbort?: () => void
   disabled?: boolean
   placeholder?: string
   isProcessing?: boolean
+  slashCommands?: SlashCommand[]
 }
 
 type PermissionMode = 'default' | 'accept-edits' | 'plan' | 'yolo'
 type Model = 'default' | 'sonnet' | 'opus'
+
+// Default slash commands (fallback if not provided)
+const DEFAULT_SLASH_COMMANDS: SlashCommand[] = [
+  { command: '/help', description: 'Show help and available commands' },
+  { command: '/clear', description: 'Clear conversation history' },
+  { command: '/compact', description: 'Compact conversation to save context' },
+  { command: '/config', description: 'Open configuration' },
+  { command: '/cost', description: 'Show token usage and cost' },
+  { command: '/doctor', description: 'Check Claude Code health' },
+  { command: '/init', description: 'Initialize project with CLAUDE.md' },
+  { command: '/memory', description: 'Edit CLAUDE.md memory file' },
+  { command: '/model', description: 'Select AI model' },
+  { command: '/review', description: 'Review code changes' },
+  { command: '/status', description: 'Show session status' },
+  { command: '/vim', description: 'Toggle vim mode' },
+]
 
 export function InputBar({
   onSend,
   onAbort,
   disabled,
   placeholder = 'Type a message...',
-  isProcessing = false
+  isProcessing = false,
+  slashCommands = DEFAULT_SLASH_COMMANDS
 }: InputBarProps) {
   const [text, setText] = useState('')
   const [showSettings, setShowSettings] = useState(false)
+  const [showSlashCommands, setShowSlashCommands] = useState(false)
+  const [selectedCommandIndex, setSelectedCommandIndex] = useState(0)
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('default')
   const [model, setModel] = useState<Model>('default')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const settingsRef = useRef<HTMLDivElement>(null)
   const settingsButtonRef = useRef<HTMLButtonElement>(null)
+
+  // Filter commands based on input
+  const filteredCommands = text.startsWith('/')
+    ? slashCommands.filter(cmd =>
+        cmd.command.toLowerCase().includes(text.toLowerCase())
+      )
+    : []
+
+  // Show/hide slash commands dropdown
+  useEffect(() => {
+    if (text.startsWith('/') && filteredCommands.length > 0) {
+      setShowSlashCommands(true)
+      setSelectedCommandIndex(0)
+    } else {
+      setShowSlashCommands(false)
+    }
+  }, [text, filteredCommands.length])
 
   // Auto-resize textarea
   useEffect(() => {
@@ -62,7 +104,37 @@ export function InputBar({
     }
   }
 
+  const selectCommand = (command: string) => {
+    setText(command + ' ')
+    setShowSlashCommands(false)
+    textareaRef.current?.focus()
+  }
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Handle slash command navigation
+    if (showSlashCommands && filteredCommands.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setSelectedCommandIndex(i => (i + 1) % filteredCommands.length)
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSelectedCommandIndex(i => (i - 1 + filteredCommands.length) % filteredCommands.length)
+        return
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault()
+        selectCommand(filteredCommands[selectedCommandIndex].command)
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setShowSlashCommands(false)
+        return
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSubmit()
@@ -74,6 +146,26 @@ export function InputBar({
       className="bg-claude-bg px-4 pt-2"
       style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 12px)' }}
     >
+      {/* Slash commands autocomplete */}
+      {showSlashCommands && filteredCommands.length > 0 && (
+        <div className="max-w-3xl mx-auto mb-2 bg-claude-bg-light border border-claude-border rounded-xl overflow-hidden">
+          {filteredCommands.map((cmd, index) => (
+            <button
+              key={cmd.command}
+              onClick={() => selectCommand(cmd.command)}
+              className={`w-full text-left px-4 py-2.5 flex items-center gap-3 transition-colors ${
+                index === selectedCommandIndex
+                  ? 'bg-claude-surface'
+                  : 'hover:bg-claude-bg-lighter'
+              }`}
+            >
+              <span className="text-claude-text font-mono text-sm">{cmd.command}</span>
+              <span className="text-claude-text-muted text-sm">{cmd.description}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Settings dialog */}
       {showSettings && (
         <div

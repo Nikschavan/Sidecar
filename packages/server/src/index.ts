@@ -154,6 +154,29 @@ const httpServer = createServer(async (req, res) => {
     return
   }
 
+  // Get available slash commands for a session
+  const slashCommandsMatch = url.pathname.match(/^\/api\/claude\/sessions\/([^/]+)\/commands$/)
+  if (slashCommandsMatch && req.method === 'GET') {
+    // For now, return default commands. In future, could parse from session or query Claude
+    const defaultCommands = [
+      { command: '/help', description: 'Show help and available commands' },
+      { command: '/clear', description: 'Clear conversation history' },
+      { command: '/compact', description: 'Compact conversation to save context' },
+      { command: '/config', description: 'Open configuration' },
+      { command: '/cost', description: 'Show token usage and cost' },
+      { command: '/doctor', description: 'Check Claude Code health' },
+      { command: '/init', description: 'Initialize project with CLAUDE.md' },
+      { command: '/memory', description: 'Edit CLAUDE.md memory file' },
+      { command: '/model', description: 'Select AI model' },
+      { command: '/review', description: 'Review code changes' },
+      { command: '/status', description: 'Show session status' },
+      { command: '/vim', description: 'Toggle vim mode' },
+    ]
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ commands: defaultCommands }))
+    return
+  }
+
   // Get most recent Claude session
   if (url.pathname === '/api/claude/current' && req.method === 'GET') {
     const sessionId = getMostRecentSession(CWD)

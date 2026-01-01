@@ -44,6 +44,11 @@ interface PendingPermission {
   source?: 'process' | 'file'
 }
 
+export interface SlashCommand {
+  command: string
+  description: string
+}
+
 export function useSessions(apiUrl: string) {
   const [projects, setProjects] = useState<Project[]>([])
   const [currentProject, setCurrentProject] = useState<string | null>(null)
@@ -53,6 +58,7 @@ export function useSessions(apiUrl: string) {
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
   const [pendingPermission, setPendingPermission] = useState<PendingPermission | null>(null)
+  const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([])
   const wsRef = useRef<WebSocket | null>(null)
 
   // WebSocket URL from API URL
@@ -150,18 +156,32 @@ export function useSessions(apiUrl: string) {
     setMessages([])
   }, [])
 
+  // Fetch slash commands for a session
+  const fetchSlashCommands = useCallback(async (sessionId: string) => {
+    try {
+      const res = await fetch(`${apiUrl}/api/claude/sessions/${sessionId}/commands`)
+      const data = await res.json()
+      setSlashCommands(data.commands || [])
+    } catch (e) {
+      console.error('Failed to fetch slash commands:', e)
+    }
+  }, [apiUrl])
+
   // Select a session
   const selectSession = useCallback((sessionId: string) => {
     setCurrentSessionId(sessionId)
     setMessages([])
     setPendingPermission(null)
 
+    // Fetch slash commands for this session
+    fetchSlashCommands(sessionId)
+
     // Tell server to watch this session for file-based permissions
     const ws = wsRef.current
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'watch_session', sessionId }))
     }
-  }, [])
+  }, [fetchSlashCommands])
 
   // Send permission response via WebSocket
   const respondToPermission = useCallback(async (allow: boolean, options?: { answers?: Record<string, string[]>; allowAll?: boolean }) => {
@@ -281,6 +301,7 @@ export function useSessions(apiUrl: string) {
     loading,
     sending,
     pendingPermission,
+    slashCommands,
     sendMessage,
     selectProject,
     selectSession,

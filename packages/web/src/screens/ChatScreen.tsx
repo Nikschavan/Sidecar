@@ -1,6 +1,6 @@
 import type { ChatMessage } from '@sidecar/shared'
 import { ChatView } from '../components/ChatView'
-import { InputBar } from '../components/InputBar'
+import { InputBar, type SlashCommand } from '../components/InputBar'
 import { AskUserQuestion } from '../components/AskUserQuestion'
 import { PermissionDialog } from '../components/PermissionDialog'
 
@@ -25,6 +25,7 @@ interface ChatScreenProps {
   loading: boolean
   sending: boolean
   pendingPermission: PendingPermission | null
+  slashCommands?: SlashCommand[]
   onSend: (text: string) => void
   onBack: () => void
   onPermissionResponse: (allow: boolean, options?: { answers?: Record<string, string[]>; allowAll?: boolean; customMessage?: string }) => void
@@ -37,6 +38,7 @@ export function ChatScreen({
   loading,
   sending,
   pendingPermission,
+  slashCommands,
   onSend,
   onBack,
   onPermissionResponse
@@ -97,7 +99,8 @@ export function ChatScreen({
       <InputBar
         onSend={onSend}
         disabled={sending || !!pendingPermission}
-        placeholder={pendingPermission ? "Respond to permission request above..." : "Add feedback..."}
+        placeholder={pendingPermission ? "Respond to permission request above..." : "Type a message..."}
+        slashCommands={slashCommands}
       />
     </div>
   )

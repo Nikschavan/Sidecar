@@ -47,6 +47,7 @@ function App() {
     loading,
     sending,
     pendingPermission,
+    slashCommands,
     sendMessage,
     selectProject,
     selectSession,
@@ -84,6 +85,7 @@ function App() {
         loading={loading}
         sending={sending}
         pendingPermission={pendingPermission}
+        slashCommands={slashCommands}
         onSend={sendMessage}
         onBack={handleBack}
         onPermissionResponse={respondToPermission}
