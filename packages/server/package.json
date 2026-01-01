@@ -16,7 +16,8 @@
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
     "test": "tsx src/test.ts",
-    "test:phone": "tsx src/test-phone.ts"
+    "test:phone": "tsx src/test-phone.ts",
+    "server:watch": "bash scripts/watch-server.sh"
   },
   "dependencies": {
     "@sidecar/shared": "workspace:*",

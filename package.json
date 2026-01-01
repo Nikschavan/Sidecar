@@ -13,6 +13,7 @@
     "build:server": "pnpm --filter @sidecar/server build",
     "build:web": "pnpm --filter @sidecar/web build",
     "server": "pnpm --filter @sidecar/server start",
+    "server:watch": "pnpm --filter @sidecar/server server:watch",
     "web": "pnpm --filter @sidecar/web dev",
     "start": "concurrently \"pnpm server\" \"pnpm web\" -n server,web -c blue,green",
     "typecheck": "pnpm -r typecheck",
