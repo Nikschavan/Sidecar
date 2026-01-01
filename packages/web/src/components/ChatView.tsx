@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, memo } from 'react'
 import Markdown from 'react-markdown'
 import type { ChatMessage } from '@sidecar/shared'
 import { ToolCard } from './ToolCard'
@@ -81,7 +81,7 @@ export function ChatView({ messages, loading, sending }: ChatViewProps) {
   )
 }
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+const MessageBubble = memo(function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === 'user'
 
   if (isUser) {
@@ -122,4 +122,4 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       )}
     </div>
   )
-}
+})

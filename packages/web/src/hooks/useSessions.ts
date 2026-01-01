@@ -248,9 +248,17 @@ export function useSessions(apiUrl: string) {
           }
         }
 
-        // Handle claude message (refresh messages)
-        if (msg.type === 'claude_message') {
-          fetchMessages()
+        // Handle claude message - append to existing messages instead of full refetch
+        if (msg.type === 'claude_message' && msg.message) {
+          setMessages(prev => {
+            // Check if message already exists (by id) to avoid duplicates
+            const exists = prev.some(m => m.id === msg.message.id)
+            if (exists) {
+              // Update existing message (for streaming updates)
+              return prev.map(m => m.id === msg.message.id ? msg.message : m)
+            }
+            return [...prev, msg.message]
+          })
         }
       } catch (e) {
         console.error('[useSessions] Failed to parse message:', e)
@@ -268,7 +276,7 @@ export function useSessions(apiUrl: string) {
     return () => {
       ws.close()
     }
-  }, [wsUrl, fetchMessages, currentSessionId])
+  }, [wsUrl, currentSessionId])
 
   // Initial fetch - load projects
   useEffect(() => {
@@ -287,16 +295,7 @@ export function useSessions(apiUrl: string) {
     fetchMessages()
   }, [fetchMessages])
 
-  // Poll for updates only when sending (waiting for response)
-  // WebSocket handles real-time updates, so we only need polling as a fallback during active sends
-  useEffect(() => {
-    if (!sending) return
-
-    const interval = setInterval(() => {
-      fetchMessages()
-    }, 3000)
-    return () => clearInterval(interval)
-  }, [fetchMessages, sending])
+  // No polling needed - WebSocket handles real-time updates via claude_message events
 
   return {
     projects,
