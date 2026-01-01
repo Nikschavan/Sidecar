@@ -31,7 +31,7 @@ export function HomeScreen({
   const currentProjectName = projects.find(p => p.path === currentProject)?.name || 'Select project'
 
   return (
-    <div className="h-full flex flex-col bg-claude-bg">
+    <div className="h-full flex flex-col bg-claude-bg overflow-x-hidden">
       {/* Header */}
       <header
         className="px-4 flex items-center justify-between"
@@ -73,7 +73,7 @@ export function HomeScreen({
       )}
 
       {/* Sessions list */}
-      <div className="flex-1 overflow-y-auto px-4">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-4">
         {!currentProject ? (
           <div className="flex items-center justify-center h-full text-claude-text-muted">
             Select a project to view sessions

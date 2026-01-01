@@ -60,7 +60,7 @@ export function ChatView({ messages, loading, sending }: ChatViewProps) {
     <div
       ref={containerRef}
       onScroll={handleScroll}
-      className="flex-1 overflow-y-auto px-4 py-6"
+      className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6"
     >
       <div className="max-w-3xl mx-auto space-y-6">
         {messages.map((msg) => (
@@ -99,12 +99,12 @@ function MessageBubble({ message }: { message: ChatMessage }) {
   return (
     <div className="space-y-3">
       {message.content && (
-        <div className="prose prose-sm prose-invert max-w-none text-claude-text leading-relaxed
+        <div className="prose prose-sm prose-invert max-w-none text-claude-text leading-relaxed overflow-hidden break-words
           prose-p:my-2 prose-p:leading-relaxed
           prose-headings:text-claude-text prose-headings:font-semibold
           prose-strong:text-claude-text prose-strong:font-semibold
-          prose-code:text-claude-coral prose-code:bg-claude-surface prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm prose-code:before:content-none prose-code:after:content-none
-          prose-pre:bg-claude-surface prose-pre:border prose-pre:border-claude-border prose-pre:rounded-lg
+          prose-code:text-claude-coral prose-code:bg-claude-surface prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm prose-code:before:content-none prose-code:after:content-none prose-code:break-all
+          prose-pre:bg-claude-surface prose-pre:border prose-pre:border-claude-border prose-pre:rounded-lg prose-pre:overflow-x-auto
           prose-li:my-0.5
           prose-ol:my-2 prose-ul:my-2">
           <Markdown>{message.content}</Markdown>

@@ -12,8 +12,8 @@ interface ToolCardProps {
   tool: ToolCall
 }
 
-// Max length before truncating
-const MAX_RESULT_LENGTH = 300
+// Max lines before truncating
+const MAX_LINES = 20
 
 // Helper to safely get string from input
 function getString(input: unknown, keys: string[]): string | null {
@@ -81,56 +81,215 @@ function getToolDetail(tool: ToolCall): string | null {
   }
 }
 
+// Render diff-style content for Edit tool
+function DiffView({ oldString, newString, expanded, onToggle }: {
+  oldString?: string
+  newString?: string
+  expanded: boolean
+  onToggle: () => void
+}) {
+  // Generate simple diff lines
+  const oldLines = oldString?.split('\n') || []
+  const newLines = newString?.split('\n') || []
+
+  const diffLines: Array<{ type: 'remove' | 'add' | 'context'; content: string; lineNum: number }> = []
+
+  // Show removed lines (old_string)
+  oldLines.forEach((line, i) => {
+    diffLines.push({ type: 'remove', content: line, lineNum: i + 1 })
+  })
+
+  // Show added lines (new_string)
+  newLines.forEach((line, i) => {
+    diffLines.push({ type: 'add', content: line, lineNum: i + 1 })
+  })
+
+  const visibleLines = expanded ? diffLines : diffLines.slice(0, MAX_LINES)
+  const hasMore = diffLines.length > MAX_LINES
+
+  return (
+    <div className="mt-2">
+      <div className="rounded-lg bg-claude-bg-lighter overflow-hidden border border-claude-border">
+        <div className="text-xs font-mono">
+          {visibleLines.map((line, i) => (
+            <div
+              key={i}
+              className={`flex ${
+                line.type === 'remove'
+                  ? 'bg-red-950/30'
+                  : line.type === 'add'
+                  ? 'bg-green-950/30'
+                  : ''
+              }`}
+            >
+              <span className="w-8 text-right pr-2 text-claude-text-dim select-none shrink-0 border-r border-claude-border">
+                {line.lineNum}
+              </span>
+              <span className={`w-4 text-center shrink-0 ${
+                line.type === 'remove' ? 'text-red-400' : line.type === 'add' ? 'text-green-400' : ''
+              }`}>
+                {line.type === 'remove' ? '-' : line.type === 'add' ? '+' : ' '}
+              </span>
+              <span className={`pl-1 pr-2 whitespace-pre-wrap break-all min-w-0 ${
+                line.type === 'remove' ? 'text-red-300' : line.type === 'add' ? 'text-green-300' : 'text-claude-text-muted'
+              }`}>
+                {line.content}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+      {hasMore && (
+        <button
+          onClick={onToggle}
+          className="text-xs text-claude-text-muted hover:text-claude-text mt-1.5 w-full text-center py-1"
+        >
+          {expanded ? 'Show less' : `Show full diff (${diffLines.length - MAX_LINES} more lines)`}
+        </button>
+      )}
+    </div>
+  )
+}
+
+// Render content for Write tool (all additions)
+function WriteView({ content, expanded, onToggle }: {
+  content: string
+  expanded: boolean
+  onToggle: () => void
+}) {
+  const lines = content.split('\n')
+  const visibleLines = expanded ? lines : lines.slice(0, MAX_LINES)
+  const hasMore = lines.length > MAX_LINES
+
+  return (
+    <div className="mt-2">
+      <div className="rounded-lg bg-claude-bg-lighter overflow-hidden border border-claude-border">
+        <div className="text-xs font-mono">
+          {visibleLines.map((line, i) => (
+            <div key={i} className="flex bg-green-950/30">
+              <span className="w-8 text-right pr-2 text-claude-text-dim select-none shrink-0 border-r border-claude-border">
+                {i + 1}
+              </span>
+              <span className="w-4 text-center shrink-0 text-green-400">+</span>
+              <span className="pl-1 pr-2 whitespace-pre-wrap break-all min-w-0 text-green-300">{line}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      {hasMore && (
+        <button
+          onClick={onToggle}
+          className="text-xs text-claude-text-muted hover:text-claude-text mt-1.5 w-full text-center py-1"
+        >
+          {expanded ? 'Show less' : `Show full content (${lines.length - MAX_LINES} more lines)`}
+        </button>
+      )}
+    </div>
+  )
+}
+
 export function ToolCard({ tool }: ToolCardProps) {
   const [expanded, setExpanded] = useState(false)
   const detail = getToolDetail(tool)
+  const input = tool.input as Record<string, unknown>
 
-  const hasResult = tool.result !== undefined
-  const resultIsTruncated = hasResult && tool.result!.length > MAX_RESULT_LENGTH
-  const displayResult = hasResult
-    ? (expanded || !resultIsTruncated ? tool.result : tool.result!.slice(0, MAX_RESULT_LENGTH) + '...')
-    : null
+  // Special handling for different tools
+  const renderToolContent = () => {
+    switch (tool.name) {
+      case 'Read':
+        // Don't show file contents for Read, just the path
+        return null
+
+      case 'Edit': {
+        const oldString = input.old_string as string | undefined
+        const newString = input.new_string as string | undefined
+        if (oldString || newString) {
+          return (
+            <DiffView
+              oldString={oldString}
+              newString={newString}
+              expanded={expanded}
+              onToggle={() => setExpanded(!expanded)}
+            />
+          )
+        }
+        return null
+      }
+
+      case 'Write': {
+        const content = input.content as string | undefined
+        if (content) {
+          return (
+            <WriteView
+              content={content}
+              expanded={expanded}
+              onToggle={() => setExpanded(!expanded)}
+            />
+          )
+        }
+        return null
+      }
+
+      default:
+        // For other tools, show result if present
+        if (tool.result) {
+          const lines = tool.result.split('\n')
+          const isTruncated = lines.length > MAX_LINES
+          const visibleContent = expanded ? tool.result : lines.slice(0, MAX_LINES).join('\n')
+
+          return (
+            <div className="mt-2">
+              <div
+                className={`text-xs font-mono p-3 rounded-lg bg-claude-bg-lighter overflow-x-auto whitespace-pre-wrap break-words ${
+                  tool.isError ? 'text-claude-tool-name' : 'text-claude-text-muted'
+                }`}
+              >
+                {visibleContent}
+                {!expanded && isTruncated && '...'}
+              </div>
+              {isTruncated && (
+                <button
+                  onClick={() => setExpanded(!expanded)}
+                  className="text-xs text-claude-accent hover:text-claude-accent-hover mt-1.5"
+                >
+                  {expanded ? 'Show less' : 'Show more'}
+                </button>
+              )}
+            </div>
+          )
+        }
+        return null
+    }
+  }
+
+  // Determine status: completed (has result), error, or pending
+  const isCompleted = tool.result !== undefined
+  const hasError = tool.isError
 
   return (
     <div className="py-1.5">
       {/* Tool name and detail inline */}
       <div className="flex items-start gap-2">
-        {tool.isError && (
-          <svg className="w-4 h-4 text-claude-tool-name shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
-          </svg>
-        )}
+        {/* Status dot */}
+        <span className={`w-2 h-2 rounded-full shrink-0 mt-1.5 ${
+          hasError
+            ? 'bg-red-500'
+            : isCompleted
+            ? 'bg-green-500'
+            : 'bg-claude-tool-name'
+        }`} />
         <div className="min-w-0 flex-1">
-          <span className="text-sm font-semibold text-claude-tool-name">{tool.name}</span>
+          <span className="text-sm font-semibold text-claude-text">{tool.name}</span>
           {detail && (
-            <span className="text-sm text-claude-text-muted ml-2 font-mono">
-              {truncate(detail, 60)}
+            <span className="text-sm text-claude-text-muted ml-2 font-mono break-all">
+              {detail}
             </span>
           )}
         </div>
       </div>
 
-      {/* Tool result display */}
-      {displayResult && (
-        <div className="mt-2">
-          <div
-            className={`text-xs font-mono p-3 rounded-lg bg-claude-bg-lighter overflow-x-auto whitespace-pre-wrap break-words ${
-              tool.isError ? 'text-claude-tool-name' : 'text-claude-text-muted'
-            }`}
-            style={{ maxHeight: expanded ? 'none' : '120px', overflow: expanded ? 'visible' : 'hidden' }}
-          >
-            {displayResult}
-          </div>
-          {resultIsTruncated && (
-            <button
-              onClick={() => setExpanded(!expanded)}
-              className="text-xs text-claude-accent hover:text-claude-accent-hover mt-1.5"
-            >
-              {expanded ? 'Show less' : 'Show more'}
-            </button>
-          )}
-        </div>
-      )}
+      {/* Tool-specific content */}
+      {renderToolContent()}
     </div>
   )
 }

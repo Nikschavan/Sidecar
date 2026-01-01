@@ -42,7 +42,7 @@ export function ChatScreen({
   onPermissionResponse
 }: ChatScreenProps) {
   return (
-    <div className="h-full flex flex-col bg-claude-bg">
+    <div className="h-full flex flex-col bg-claude-bg overflow-x-hidden">
       {/* Header */}
       <header
         className="px-4 flex items-center justify-between"

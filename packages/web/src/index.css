@@ -37,6 +37,12 @@ body {
   border-radius: 2px;
 }
 
+/* Prevent horizontal scroll */
+html, body, #root {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
 /* Prevent pull-to-refresh on mobile */
 body {
   overscroll-behavior: none;
