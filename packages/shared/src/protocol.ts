@@ -49,6 +49,7 @@ export interface ServerSessionUpdateMessage {
 export interface ServerClaudeMessageMessage {
   type: 'claude_message'
   message: unknown
+  sessionId?: string
 }
 
 export type ServerMessage =

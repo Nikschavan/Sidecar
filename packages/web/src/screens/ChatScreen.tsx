@@ -2,13 +2,20 @@ import type { ChatMessage } from '@sidecar/shared'
 import { ChatView } from '../components/ChatView'
 import { InputBar } from '../components/InputBar'
 
+interface PendingPermission {
+  tool: string
+  description: string
+}
+
 interface ChatScreenProps {
   sessionId: string
   messages: ChatMessage[]
   loading: boolean
   sending: boolean
+  pendingPermission: PendingPermission | null
   onSend: (text: string) => void
   onBack: () => void
+  onPermissionResponse: (allow: boolean, always?: boolean) => void
 }
 
 export function ChatScreen({
@@ -16,8 +23,10 @@ export function ChatScreen({
   messages,
   loading,
   sending,
+  pendingPermission,
   onSend,
-  onBack
+  onBack,
+  onPermissionResponse
 }: ChatScreenProps) {
   return (
     <div className="h-full flex flex-col bg-slate-900">
@@ -52,11 +61,43 @@ export function ChatScreen({
         sending={sending}
       />
 
+      {/* Permission prompt */}
+      {pendingPermission && (
+        <div className="bg-amber-900/50 border-t border-amber-700 p-4">
+          <div className="text-sm text-amber-200 mb-3">
+            Claude wants to use <span className="font-semibold">{pendingPermission.tool}</span>
+          </div>
+          <div className="text-xs text-amber-300/70 mb-3 font-mono truncate">
+            {pendingPermission.description}
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => onPermissionResponse(true)}
+              className="flex-1 bg-green-600 hover:bg-green-500 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors"
+            >
+              Allow
+            </button>
+            <button
+              onClick={() => onPermissionResponse(true, true)}
+              className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors"
+            >
+              Always Allow
+            </button>
+            <button
+              onClick={() => onPermissionResponse(false)}
+              className="flex-1 bg-red-600 hover:bg-red-500 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors"
+            >
+              Deny
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Input bar */}
       <InputBar
         onSend={onSend}
-        disabled={sending}
-        placeholder="Message Claude..."
+        disabled={sending || !!pendingPermission}
+        placeholder={pendingPermission ? "Respond to permission request above..." : "Message Claude..."}
       />
     </div>
   )

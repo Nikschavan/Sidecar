@@ -13,6 +13,7 @@ export interface ClaudeProcess {
   child: ChildProcessWithoutNullStreams
   sessionId: string | null
   send: (text: string) => void
+  sendPermissionResponse: (tool: string, allow: boolean, always?: boolean) => void
   onMessage: (callback: (msg: ClaudeMessage) => void) => void
   onExit: (callback: (code: number | null) => void) => void
 }
@@ -109,6 +110,19 @@ export function spawnClaude(options: SpawnOptions): ClaudeProcess {
         message: {
           role: 'user',
           content: text
+        }
+      }
+      child.stdin.write(JSON.stringify(msg) + '\n')
+    },
+    sendPermissionResponse(tool: string, allow: boolean, always?: boolean) {
+      const msg = {
+        type: 'permission_response',
+        permission_response: {
+          permission_grant: {
+            tool,
+            allow,
+            ...(always !== undefined ? { always } : {})
+          }
         }
       }
       child.stdin.write(JSON.stringify(msg) + '\n')

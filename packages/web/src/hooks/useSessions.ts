@@ -30,6 +30,11 @@ interface SessionMessagesResponse {
   messages: ChatMessage[]
 }
 
+interface PendingPermission {
+  tool: string
+  description: string
+}
+
 export function useSessions(apiUrl: string) {
   const [projects, setProjects] = useState<Project[]>([])
   const [currentProject, setCurrentProject] = useState<string | null>(null)
@@ -38,6 +43,7 @@ export function useSessions(apiUrl: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
+  const [pendingPermission, setPendingPermission] = useState<PendingPermission | null>(null)
 
   // Fetch all projects
   const fetchProjects = useCallback(async () => {
@@ -108,8 +114,28 @@ export function useSessions(apiUrl: string) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text })
       })
-      
+
       if (res.ok) {
+        const data = await res.json()
+        // Check if any response contains a tool_use that needs permission
+        if (data.responses) {
+          for (const response of data.responses) {
+            if (response.type === 'assistant' && response.message?.content) {
+              for (const block of response.message.content) {
+                if (block.type === 'tool_use' && block.name) {
+                  // Check if Claude is waiting (no result message received)
+                  const hasResult = data.responses.some((r: { type: string }) => r.type === 'result')
+                  if (!hasResult) {
+                    setPendingPermission({
+                      tool: block.name,
+                      description: `${block.name}: ${JSON.stringify(block.input || {}).slice(0, 100)}`
+                    })
+                  }
+                }
+              }
+            }
+          }
+        }
         // Refresh messages to get Claude's response
         await fetchMessages()
       }
@@ -134,7 +160,30 @@ export function useSessions(apiUrl: string) {
   const selectSession = useCallback((sessionId: string) => {
     setCurrentSessionId(sessionId)
     setMessages([])
+    setPendingPermission(null)
   }, [])
+
+  // Send permission response
+  const respondToPermission = useCallback(async (allow: boolean, always?: boolean) => {
+    if (!currentSessionId || !pendingPermission) return
+
+    try {
+      await fetch(apiUrl + '/api/claude/sessions/' + currentSessionId + '/permission', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tool: pendingPermission.tool,
+          allow,
+          always
+        })
+      })
+      setPendingPermission(null)
+      // Refresh messages to see result
+      await fetchMessages()
+    } catch (e) {
+      console.error('Failed to respond to permission:', e)
+    }
+  }, [apiUrl, currentSessionId, pendingPermission, fetchMessages])
 
   // Initial fetch - load projects
   useEffect(() => {
@@ -171,9 +220,11 @@ export function useSessions(apiUrl: string) {
     messages,
     loading,
     sending,
+    pendingPermission,
     sendMessage,
     selectProject,
     selectSession,
+    respondToPermission,
     refresh: fetchMessages
   }
 }

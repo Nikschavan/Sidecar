@@ -46,9 +46,11 @@ function App() {
     messages,
     loading,
     sending,
+    pendingPermission,
     sendMessage,
     selectProject,
-    selectSession
+    selectSession,
+    respondToPermission
   } = useSessions(API_URL)
 
   // Sync URL session with state
@@ -74,8 +76,10 @@ function App() {
         messages={messages}
         loading={loading}
         sending={sending}
+        pendingPermission={pendingPermission}
         onSend={sendMessage}
         onBack={handleBack}
+        onPermissionResponse={respondToPermission}
       />
     )
   }

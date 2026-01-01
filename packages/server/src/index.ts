@@ -9,7 +9,7 @@ import { WebSocketServer } from 'ws'
 import { createWSServer, type WSClient } from './ws/server.js'
 import { createSessionManager } from './session/manager.js'
 import { listClaudeSessions, readClaudeSession, getMostRecentSession, listAllProjects, findSessionProject } from './claude/sessions.js'
-import { spawnClaude } from './claude/spawn.js'
+import { spawnClaude, type ClaudeProcess } from './claude/spawn.js'
 import type { ClientMessage } from '@sidecar/shared'
 
 const PORT = parseInt(process.env.PORT || '3456', 10)
@@ -20,6 +20,17 @@ const sessionManager = createSessionManager()
 
 // Track which session each client is subscribed to
 const clientSessions = new Map<string, string>()
+
+// Track active Claude processes waiting for permission
+interface ActiveProcess {
+  claude: ClaudeProcess
+  sessionId: string
+  projectPath: string
+  pendingPermission: { tool: string; description: string } | null
+  responses: unknown[]
+  resolve: () => void
+}
+const activeProcesses = new Map<string, ActiveProcess>()
 
 // Track CLI client and phone clients for relay mode
 let cliClient: WSClient | null = null
@@ -177,13 +188,31 @@ const httpServer = createServer(async (req, res) => {
 
     // Spawn Claude with --resume to continue the session
     const responses: unknown[] = []
+    let pendingPermission: { tool: string; description: string } | null = null
+
     const claude = spawnClaude({
       cwd: projectPath,
       resume: sessionId,
       onMessage: (msg) => {
         responses.push(msg)
         // Broadcast to WebSocket clients (phones)
-        ws.broadcast({ type: 'claude_message', message: msg })
+        ws.broadcast({ type: 'claude_message', message: msg, sessionId })
+
+        // Check for permission request in assistant messages
+        if (msg.type === 'assistant' && 'message' in msg) {
+          const content = (msg as any).message?.content
+          if (Array.isArray(content)) {
+            for (const block of content) {
+              if (block.type === 'tool_use') {
+                // Track tool use that may need permission
+                pendingPermission = {
+                  tool: block.name,
+                  description: `${block.name}: ${JSON.stringify(block.input).slice(0, 100)}`
+                }
+              }
+            }
+          }
+        }
       }
     })
 
@@ -191,32 +220,50 @@ const httpServer = createServer(async (req, res) => {
     claude.send(text)
 
     // Wait for Claude to finish (result message or timeout)
-    await new Promise<void>((resolve) => {
-      let finished = false
-
-      claude.onMessage((msg) => {
-        if (msg.type === 'result' && !finished) {
-          finished = true
-          setTimeout(resolve, 500) // Small delay to collect final messages
-        }
-      })
-
-      claude.onExit(() => {
-        if (!finished) {
-          finished = true
-          resolve()
-        }
-      })
-
-      // Timeout after 2 minutes
-      setTimeout(() => {
-        if (!finished) {
-          finished = true
-          claude.child.kill()
-          resolve()
-        }
-      }, 120000)
+    let resolvePromise: () => void
+    const donePromise = new Promise<void>((resolve) => {
+      resolvePromise = resolve
     })
+
+    let finished = false
+
+    claude.onMessage((msg) => {
+      if (msg.type === 'result' && !finished) {
+        finished = true
+        activeProcesses.delete(sessionId)
+        setTimeout(resolvePromise, 500) // Small delay to collect final messages
+      }
+    })
+
+    claude.onExit(() => {
+      if (!finished) {
+        finished = true
+        activeProcesses.delete(sessionId)
+        resolvePromise()
+      }
+    })
+
+    // Store the process for permission responses
+    activeProcesses.set(sessionId, {
+      claude,
+      sessionId,
+      projectPath,
+      pendingPermission,
+      responses,
+      resolve: resolvePromise!
+    })
+
+    // Timeout after 5 minutes (longer for permission flows)
+    setTimeout(() => {
+      if (!finished) {
+        finished = true
+        activeProcesses.delete(sessionId)
+        claude.child.kill()
+        resolvePromise()
+      }
+    }, 300000)
+
+    await donePromise
 
     // Return the responses
     res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -224,6 +271,48 @@ const httpServer = createServer(async (req, res) => {
       sessionId,
       messageCount: responses.length,
       responses
+    }))
+    return
+  }
+
+  // Respond to permission request for a session
+  const permissionMatch = url.pathname.match(/^\/api\/claude\/sessions\/([^/]+)\/permission$/)
+  if (permissionMatch && req.method === 'POST') {
+    const sessionId = permissionMatch[1]
+    let body = ''
+    for await (const chunk of req) {
+      body += chunk
+    }
+    const { tool, allow, always } = JSON.parse(body || '{}')
+
+    const activeProcess = activeProcesses.get(sessionId)
+    if (!activeProcess) {
+      res.writeHead(404, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'No active process waiting for permission' }))
+      return
+    }
+
+    console.log(`[server] Permission response for ${sessionId}: ${tool} ${allow ? 'allowed' : 'denied'}`)
+
+    // Send permission response to Claude
+    activeProcess.claude.sendPermissionResponse(tool || activeProcess.pendingPermission?.tool || 'unknown', allow, always)
+
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ ok: true, tool, allow }))
+    return
+  }
+
+  // Check if session has pending permission
+  const permissionStatusMatch = url.pathname.match(/^\/api\/claude\/sessions\/([^/]+)\/permission$/)
+  if (permissionStatusMatch && req.method === 'GET') {
+    const sessionId = permissionStatusMatch[1]
+    const activeProcess = activeProcesses.get(sessionId)
+
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({
+      sessionId,
+      hasPendingPermission: !!activeProcess?.pendingPermission,
+      permission: activeProcess?.pendingPermission || null
     }))
     return
   }

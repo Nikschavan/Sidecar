@@ -44,7 +44,36 @@ export interface ClaudeResultMessage {
   is_error: boolean
 }
 
-export type ClaudeMessage = ClaudeSystemInit | ClaudeAssistantMessage | ClaudeResultMessage | { type: string; [key: string]: unknown }
+// Permission request from Claude
+export interface ClaudePermissionRequest {
+  type: 'permission_request'
+  permission: {
+    tool: string
+    path?: string
+    command?: string
+    description: string
+  }
+}
+
+// Permission response to send to Claude
+export interface PermissionResponse {
+  type: 'permission_response'
+  permission_response: {
+    permission_grant: {
+      tool: string
+      path?: string
+      allow: boolean
+      always?: boolean
+    }
+  }
+}
+
+export type ClaudeMessage =
+  | ClaudeSystemInit
+  | ClaudeAssistantMessage
+  | ClaudeResultMessage
+  | ClaudePermissionRequest
+  | { type: string; [key: string]: unknown }
 
 // Question option (from AskUserQuestion tool)
 export interface QuestionOption {
