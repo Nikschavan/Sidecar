@@ -70,9 +70,11 @@ function App() {
   }
 
   if (route.screen === 'chat' && route.sessionId) {
+    const currentSession = sessions.find(s => s.id === route.sessionId)
     return (
       <ChatScreen
         sessionId={route.sessionId}
+        sessionName={currentSession?.name ?? null}
         messages={messages}
         loading={loading}
         sending={sending}

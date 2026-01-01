@@ -18,6 +18,7 @@ interface PendingPermission {
 
 interface ChatScreenProps {
   sessionId: string
+  sessionName: string | null
   messages: ChatMessage[]
   loading: boolean
   sending: boolean
@@ -29,6 +30,7 @@ interface ChatScreenProps {
 
 export function ChatScreen({
   sessionId,
+  sessionName,
   messages,
   loading,
   sending,
@@ -55,7 +57,7 @@ export function ChatScreen({
 
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium text-slate-200 truncate">
-            Session
+            {sessionName || 'Untitled session'}
           </div>
           <div className="text-xs text-slate-500 font-mono">
             {sessionId.slice(0, 16)}...
