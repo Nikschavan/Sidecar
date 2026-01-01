@@ -69,6 +69,11 @@ function App() {
     navigate('/')
   }
 
+  const handleNewSession = () => {
+    // TODO: Implement new session creation
+    console.log('New session requested')
+  }
+
   if (route.screen === 'chat' && route.sessionId) {
     const currentSession = sessions.find(s => s.id === route.sessionId)
     return (
@@ -93,6 +98,7 @@ function App() {
       sessions={sessions}
       onProjectChange={selectProject}
       onSelectSession={handleSelectSession}
+      onNewSession={handleNewSession}
     />
   )
 }

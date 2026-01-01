@@ -7,18 +7,25 @@ export default {
   theme: {
     extend: {
       colors: {
-        primary: {
-          50: '#fdf4ff',
-          100: '#fae8ff',
-          200: '#f5d0fe',
-          300: '#f0abfc',
-          400: '#e879f9',
-          500: '#d946ef',
-          600: '#c026d3',
-          700: '#a21caf',
-          800: '#86198f',
-          900: '#701a75',
+        // Claude Code warm color palette
+        claude: {
+          bg: '#1a1816',
+          'bg-light': '#262220',
+          'bg-lighter': '#302c29',
+          surface: '#2a2624',
+          border: '#3d3835',
+          text: '#e8e4df',
+          'text-muted': '#9a9590',
+          'text-dim': '#6b6560',
+          accent: '#c96442',
+          'accent-hover': '#d97a5a',
+          'tool-name': '#e07a5f',
+          'user-bubble': '#3d3630',
         }
+      },
+      fontFamily: {
+        sans: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'sans-serif'],
+        mono: ['SF Mono', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
       }
     },
   },

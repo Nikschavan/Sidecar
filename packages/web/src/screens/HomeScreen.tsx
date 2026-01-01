@@ -1,5 +1,3 @@
-import { formatDistanceToNow } from '../utils/time'
-
 interface Project {
   path: string
   name: string
@@ -19,6 +17,7 @@ interface HomeScreenProps {
   sessions: Session[]
   onProjectChange: (path: string) => void
   onSelectSession: (id: string) => void
+  onNewSession: () => void
 }
 
 export function HomeScreen({
@@ -26,22 +25,36 @@ export function HomeScreen({
   currentProject,
   sessions,
   onProjectChange,
-  onSelectSession
+  onSelectSession,
+  onNewSession
 }: HomeScreenProps) {
+  const currentProjectName = projects.find(p => p.path === currentProject)?.name || 'Select project'
+
   return (
-    <div className="h-full flex flex-col bg-slate-900">
+    <div className="h-full flex flex-col bg-claude-bg">
       {/* Header */}
       <header
-        className="bg-slate-800 border-b border-slate-700 px-4"
-        style={{ paddingTop: 'max(env(safe-area-inset-top), 16px)', paddingBottom: '16px' }}
+        className="px-4 flex items-center justify-between"
+        style={{ paddingTop: 'max(env(safe-area-inset-top), 16px)', paddingBottom: '12px' }}
       >
-        <div className="text-xl font-bold text-primary-400 mb-4">Sidecar</div>
+        {/* Project selector button */}
+        <button className="p-2 -ml-2 hover:bg-claude-bg-light rounded-full transition-colors">
+          <svg className="w-6 h-6 text-claude-text" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+          </svg>
+        </button>
 
-        {/* Project selector */}
+        <h1 className="text-lg font-medium text-claude-text">Code</h1>
+
+        <div className="w-10" /> {/* Spacer for centering */}
+      </header>
+
+      {/* Project dropdown */}
+      <div className="px-4 pb-4">
         <select
           value={currentProject || ''}
           onChange={(e) => onProjectChange(e.target.value)}
-          className="w-full bg-slate-700 text-sm rounded-lg px-4 py-3 text-slate-200 border-none focus:ring-2 focus:ring-primary-500"
+          className="w-full bg-claude-bg-light text-sm rounded-lg px-4 py-3 text-claude-text border border-claude-border focus:outline-none focus:border-claude-accent"
         >
           <option value="" disabled>Select a project...</option>
           {(projects || []).map((p) => (
@@ -50,40 +63,62 @@ export function HomeScreen({
             </option>
           ))}
         </select>
-      </header>
+      </div>
+
+      {/* Status indicator */}
+      {currentProject && (
+        <div className="px-4 pb-2">
+          <span className="text-xs text-claude-text-dim">Idle</span>
+        </div>
+      )}
 
       {/* Sessions list */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto px-4">
         {!currentProject ? (
-          <div className="flex items-center justify-center h-full text-slate-400">
+          <div className="flex items-center justify-center h-full text-claude-text-muted">
             Select a project to view sessions
           </div>
         ) : sessions.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-slate-400">
+          <div className="flex items-center justify-center h-full text-claude-text-muted">
             No sessions in this project
           </div>
         ) : (
-          <div className="p-4 space-y-2">
-            <div className="text-xs text-slate-500 uppercase tracking-wide mb-3">
-              Sessions ({sessions.length})
-            </div>
+          <div className="space-y-1">
             {sessions.map((session) => (
               <button
                 key={session.id}
                 onClick={() => onSelectSession(session.id)}
-                className="w-full text-left p-4 bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors"
+                className="w-full text-left py-4 flex items-center justify-between group hover:bg-claude-bg-light rounded-lg px-2 -mx-2 transition-colors"
               >
-                <div className="text-sm text-slate-200 truncate mb-1">
-                  {session.name || 'Untitled session'}
+                <div className="min-w-0 flex-1">
+                  <div className="text-[15px] text-claude-text truncate">
+                    {session.name || 'Untitled session'}
+                  </div>
+                  <div className="text-sm text-claude-text-muted truncate">
+                    {currentProjectName}
+                  </div>
                 </div>
-                <div className="flex items-center gap-3 text-xs text-slate-500">
-                  <span className="font-mono">{session.id.slice(0, 8)}</span>
-                  <span>{formatDistanceToNow(session.modifiedAt)}</span>
-                </div>
+                <svg className="w-5 h-5 text-claude-text-dim shrink-0 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                </svg>
               </button>
             ))}
           </div>
         )}
+      </div>
+
+      {/* New session button */}
+      <div
+        className="px-4 pt-4"
+        style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 16px)' }}
+      >
+        <button
+          onClick={onNewSession}
+          disabled={!currentProject}
+          className="w-full bg-[#f5f3ef] text-[#2a2624] py-3.5 rounded-full text-[15px] font-medium hover:bg-[#ebe8e4] disabled:opacity-50 disabled:hover:bg-[#f5f3ef] transition-colors"
+        >
+          New session
+        </button>
       </div>
     </div>
   )

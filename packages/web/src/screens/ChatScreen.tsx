@@ -29,7 +29,7 @@ interface ChatScreenProps {
 }
 
 export function ChatScreen({
-  sessionId,
+  sessionId: _sessionId,
   sessionName,
   messages,
   loading,
@@ -40,29 +40,30 @@ export function ChatScreen({
   onPermissionResponse
 }: ChatScreenProps) {
   return (
-    <div className="h-full flex flex-col bg-slate-900">
+    <div className="h-full flex flex-col bg-claude-bg">
       {/* Header */}
       <header
-        className="bg-slate-800 border-b border-slate-700 px-4 flex items-center gap-3"
+        className="px-4 flex items-center justify-between"
         style={{ paddingTop: 'max(env(safe-area-inset-top), 12px)', paddingBottom: '12px' }}
       >
         <button
           onClick={onBack}
-          className="p-2 -ml-2 hover:bg-slate-700 rounded-lg transition-colors"
+          className="p-2 -ml-2 hover:bg-claude-bg-light rounded-full transition-colors"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          <svg className="w-6 h-6 text-claude-text" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.75 19.5L8.25 12l7.5-7.5" />
           </svg>
         </button>
 
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-slate-200 truncate">
-            {sessionName || 'Untitled session'}
-          </div>
-          <div className="text-xs text-slate-500 font-mono">
-            {sessionId.slice(0, 16)}...
-          </div>
-        </div>
+        <h1 className="text-base font-medium text-claude-text truncate max-w-[60%]">
+          {sessionName || 'Untitled session'}
+        </h1>
+
+        <button className="p-2 -mr-2 hover:bg-claude-bg-light rounded-full transition-colors">
+          <svg className="w-6 h-6 text-claude-text" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM12.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM18.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
+          </svg>
+        </button>
       </header>
 
       {/* Chat messages */}
@@ -83,32 +84,34 @@ export function ChatScreen({
 
       {/* Generic permission prompt */}
       {pendingPermission && pendingPermission.toolName !== 'AskUserQuestion' && (
-        <div className="bg-amber-900/50 border-t border-amber-700 p-4">
-          <div className="text-sm text-amber-200 mb-2">
-            Claude wants to use <span className="font-semibold">{pendingPermission.toolName}</span>
-          </div>
-          <div className="text-xs text-amber-300/70 mb-3 font-mono bg-amber-950/50 p-2 rounded overflow-x-auto max-h-24 overflow-y-auto">
-            {JSON.stringify(pendingPermission.input, null, 2)}
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => onPermissionResponse(true)}
-              className="flex-1 bg-green-600 hover:bg-green-500 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors"
-            >
-              Allow
-            </button>
-            <button
-              onClick={() => onPermissionResponse(true, { allowAll: true })}
-              className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors"
-            >
-              Allow All
-            </button>
-            <button
-              onClick={() => onPermissionResponse(false)}
-              className="flex-1 bg-red-600 hover:bg-red-500 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors"
-            >
-              Deny
-            </button>
+        <div className="bg-claude-bg-light border-t border-claude-border p-4">
+          <div className="max-w-3xl mx-auto">
+            <div className="text-sm text-claude-text mb-2">
+              Claude wants to use <span className="font-semibold text-claude-tool-name">{pendingPermission.toolName}</span>
+            </div>
+            <div className="text-xs text-claude-text-muted mb-3 font-mono bg-claude-bg p-2 rounded-lg overflow-x-auto max-h-24 overflow-y-auto">
+              {JSON.stringify(pendingPermission.input, null, 2)}
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => onPermissionResponse(true)}
+                className="flex-1 bg-green-700 hover:bg-green-600 text-white py-2.5 px-4 rounded-lg text-sm font-medium transition-colors"
+              >
+                Allow
+              </button>
+              <button
+                onClick={() => onPermissionResponse(true, { allowAll: true })}
+                className="flex-1 bg-blue-700 hover:bg-blue-600 text-white py-2.5 px-4 rounded-lg text-sm font-medium transition-colors"
+              >
+                Allow All
+              </button>
+              <button
+                onClick={() => onPermissionResponse(false)}
+                className="flex-1 bg-red-700 hover:bg-red-600 text-white py-2.5 px-4 rounded-lg text-sm font-medium transition-colors"
+              >
+                Deny
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -117,7 +120,7 @@ export function ChatScreen({
       <InputBar
         onSend={onSend}
         disabled={sending || !!pendingPermission}
-        placeholder={pendingPermission ? "Respond to permission request above..." : "Message Claude..."}
+        placeholder={pendingPermission ? "Respond to permission request above..." : "Add feedback..."}
       />
     </div>
   )

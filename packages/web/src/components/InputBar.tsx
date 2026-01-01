@@ -6,7 +6,7 @@ interface InputBarProps {
   placeholder?: string
 }
 
-export function InputBar({ onSend, disabled, placeholder = 'Message Claude...' }: InputBarProps) {
+export function InputBar({ onSend, disabled, placeholder = 'Add feedback...' }: InputBarProps) {
   const [text, setText] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -35,28 +35,30 @@ export function InputBar({ onSend, disabled, placeholder = 'Message Claude...' }
   }
 
   return (
-    <div 
-      className="border-t border-slate-700 bg-slate-800/80 backdrop-blur-sm"
-      style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 8px)' }}
+    <div
+      className="bg-claude-bg px-4 pt-2"
+      style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 12px)' }}
     >
-      <div className="flex items-end gap-2 p-3">
-        <textarea
-          ref={textareaRef}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={placeholder}
-          disabled={disabled}
-          rows={1}
-          className="flex-1 bg-slate-700 rounded-xl px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary-500 placeholder-slate-400 disabled:opacity-50"
-        />
+      <div className="flex items-end gap-3 max-w-3xl mx-auto">
+        <div className="flex-1 bg-[#f5f3ef] rounded-2xl px-4 py-2 min-h-[44px] flex items-center">
+          <textarea
+            ref={textareaRef}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={placeholder}
+            disabled={disabled}
+            rows={1}
+            className="flex-1 bg-transparent text-[15px] text-[#2a2624] resize-none focus:outline-none placeholder-[#9a9590] disabled:opacity-50"
+          />
+        </div>
         <button
           onClick={handleSubmit}
           disabled={disabled || !text.trim()}
-          className="p-3 bg-primary-600 rounded-xl hover:bg-primary-500 disabled:opacity-50 disabled:hover:bg-primary-600 transition-colors"
+          className="w-11 h-11 flex items-center justify-center bg-claude-accent rounded-full hover:bg-claude-accent-hover disabled:opacity-40 disabled:hover:bg-claude-accent transition-colors shrink-0"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+          <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
           </svg>
         </button>
       </div>
