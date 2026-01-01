@@ -15,7 +15,8 @@
     "start:cli": "node dist/cli.js",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
-    "test": "tsx src/test.ts"
+    "test": "tsx src/test.ts",
+    "test:phone": "tsx src/test-phone.ts"
   },
   "dependencies": {
     "@sidecar/shared": "workspace:*",

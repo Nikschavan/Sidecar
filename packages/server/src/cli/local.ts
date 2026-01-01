@@ -6,6 +6,7 @@
  */
 
 import * as pty from 'node-pty'
+import { getMostRecentSession } from '../claude/sessions.js'
 import type { SwitchReason } from './loop.js'
 import type { ServerClient } from './server-client.js'
 
@@ -66,10 +67,19 @@ export async function runLocalMode(options: LocalModeOptions): Promise<LocalMode
     ptyProcess.onData((data) => {
       process.stdout.write(data)
 
-      // Try to detect session ID from output
-      // Claude prints session info, we can parse it
-      // For now, we'll rely on the session file watcher
+      // Detect session ID from Claude's output
+      // Claude shows "Session: abc123..." in some cases
+      // But more reliably, check the most recent session file after startup
     })
+
+    // After a short delay, detect the session ID from Claude's files
+    setTimeout(() => {
+      const sessionId = getMostRecentSession(options.cwd)
+      if (sessionId) {
+        console.log(`\n[local] Detected Claude session: ${sessionId}`)
+        options.onSessionId(sessionId)
+      }
+    }, 2000)
 
     // Pipe stdin to PTY
     process.stdin.setRawMode(true)
