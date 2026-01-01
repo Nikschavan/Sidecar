@@ -157,15 +157,15 @@ export function useSessions(apiUrl: string) {
   }, [])
 
   // Send permission response via WebSocket
-  const respondToPermission = useCallback(async (allow: boolean, answers?: Record<string, string[]>) => {
+  const respondToPermission = useCallback(async (allow: boolean, options?: { answers?: Record<string, string[]>; allowAll?: boolean }) => {
     if (!pendingPermission) return
 
     const ws = wsRef.current
     if (ws && ws.readyState === WebSocket.OPEN) {
       // For AskUserQuestion, include answers in the updatedInput
       let updatedInput = allow ? pendingPermission.input : undefined
-      if (allow && answers) {
-        updatedInput = { ...pendingPermission.input, answers }
+      if (allow && options?.answers) {
+        updatedInput = { ...pendingPermission.input, answers: options.answers }
       }
 
       // Send via WebSocket
@@ -173,9 +173,11 @@ export function useSessions(apiUrl: string) {
         type: 'permission_response',
         sessionId: pendingPermission.sessionId,
         requestId: pendingPermission.requestId,
+        toolName: pendingPermission.toolName,
         allow,
+        allowAll: options?.allowAll || false,
         updatedInput,
-        answers  // Also send answers separately for clarity
+        answers: options?.answers  // Also send answers separately for clarity
       }))
       setPendingPermission(null)
     } else {

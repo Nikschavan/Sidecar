@@ -32,6 +32,9 @@ interface ActiveProcess {
 }
 const activeProcesses = new Map<string, ActiveProcess>()
 
+// Track allowed tools per session (when user clicks "Allow All")
+const allowedToolsBySession = new Map<string, Set<string>>()
+
 // Track CLI client and phone clients for relay mode
 let cliClient: WSClient | null = null
 let currentClaudeSessionId: string | null = null
@@ -200,6 +203,17 @@ const httpServer = createServer(async (req, res) => {
       },
       onPermissionRequest: (permReq) => {
         console.log(`[server] Permission request for ${permReq.toolName}: ${JSON.stringify(permReq.input).slice(0, 100)}`)
+        console.log(`[server] Session: ${sessionId}, All allowed sessions: ${JSON.stringify([...allowedToolsBySession.keys()])}`)
+
+        // Check if this tool is already allowed for this session (user clicked "Allow All")
+        const allowedTools = allowedToolsBySession.get(sessionId)
+        console.log(`[server] Allowed tools for session: ${allowedTools ? [...allowedTools].join(', ') : 'none'}`)
+        if (allowedTools?.has(permReq.toolName)) {
+          console.log(`[server] Auto-approving ${permReq.toolName} (allowed for session)`)
+          claude.sendPermissionResponse(permReq.requestId, true, permReq.input)
+          return
+        }
+
         pendingPermission = permReq
 
         // Update the active process with the pending permission
@@ -592,8 +606,27 @@ const ws = createWSServer(wss, {
 
     // Handle permission response from web client
     if (message.type === 'permission_response') {
-      const { sessionId, requestId, allow, updatedInput } = message
-      console.log(`[server] Permission response for ${sessionId}: ${allow ? 'ALLOW' : 'DENY'}`)
+      const { sessionId, requestId, allow, allowAll, toolName, updatedInput } = message as {
+        sessionId: string
+        requestId: string
+        allow: boolean
+        allowAll?: boolean
+        toolName?: string
+        updatedInput?: Record<string, unknown>
+      }
+      console.log(`[server] Permission response for ${sessionId}: ${allow ? 'ALLOW' : 'DENY'}${allowAll ? ' (ALL)' : ''}, toolName=${toolName}`)
+
+      // Track tool as allowed if user clicked "Allow All"
+      if (allow && allowAll && toolName) {
+        console.log(`[server] allowAll=true, adding ${toolName} to allowed tools`)
+        let allowedTools = allowedToolsBySession.get(sessionId)
+        if (!allowedTools) {
+          allowedTools = new Set()
+          allowedToolsBySession.set(sessionId, allowedTools)
+        }
+        allowedTools.add(toolName)
+        console.log(`[server] Added ${toolName} to allowed tools for session ${sessionId}`)
+      }
 
       const activeProcess = activeProcesses.get(sessionId)
       if (activeProcess) {

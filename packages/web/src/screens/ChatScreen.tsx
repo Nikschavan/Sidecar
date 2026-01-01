@@ -24,7 +24,7 @@ interface ChatScreenProps {
   pendingPermission: PendingPermission | null
   onSend: (text: string) => void
   onBack: () => void
-  onPermissionResponse: (allow: boolean, answers?: Record<string, string[]>) => void
+  onPermissionResponse: (allow: boolean, options?: { answers?: Record<string, string[]>; allowAll?: boolean }) => void
 }
 
 export function ChatScreen({
@@ -74,7 +74,7 @@ export function ChatScreen({
       {pendingPermission && pendingPermission.toolName === 'AskUserQuestion' && (
         <AskUserQuestion
           input={pendingPermission.input}
-          onSubmit={(answers) => onPermissionResponse(true, answers)}
+          onSubmit={(answers) => onPermissionResponse(true, { answers })}
           onCancel={() => onPermissionResponse(false)}
         />
       )}
@@ -94,6 +94,12 @@ export function ChatScreen({
               className="flex-1 bg-green-600 hover:bg-green-500 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors"
             >
               Allow
+            </button>
+            <button
+              onClick={() => onPermissionResponse(true, { allowAll: true })}
+              className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors"
+            >
+              Allow All
             </button>
             <button
               onClick={() => onPermissionResponse(false)}
