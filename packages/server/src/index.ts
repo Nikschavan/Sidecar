@@ -9,6 +9,7 @@ import { WebSocketServer } from 'ws'
 import { createWSServer, type WSClient } from './ws/server.js'
 import { createSessionManager } from './session/manager.js'
 import { listClaudeSessions, readClaudeSession, getMostRecentSession } from './claude/sessions.js'
+import { spawnClaude } from './claude/spawn.js'
 import type { ClientMessage } from '@sidecar/shared'
 
 const PORT = parseInt(process.env.PORT || '3456', 10)
@@ -110,6 +111,145 @@ const httpServer = createServer(async (req, res) => {
       cwd: CWD,
       messageCount: messages.length,
       messages
+    }))
+    return
+  }
+
+  // Send message to Claude session (spawns new Claude process with --resume)
+  const claudeSendMatch = url.pathname.match(/^\/api\/claude\/sessions\/([^/]+)\/send$/)
+  if (claudeSendMatch && req.method === 'POST') {
+    const sessionId = claudeSendMatch[1]
+    let body = ''
+    for await (const chunk of req) {
+      body += chunk
+    }
+    const { text } = JSON.parse(body || '{}')
+    if (!text) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'text is required' }))
+      return
+    }
+
+    console.log(`[server] Sending to Claude session ${sessionId}: ${text.slice(0, 50)}...`)
+
+    // Spawn Claude with --resume to continue the session
+    const responses: unknown[] = []
+    const claude = spawnClaude({
+      cwd: CWD,
+      resume: sessionId,
+      onMessage: (msg) => {
+        responses.push(msg)
+        // Broadcast to WebSocket clients (phones)
+        ws.broadcast({ type: 'claude_message', message: msg })
+      }
+    })
+
+    // Send the message
+    claude.send(text)
+
+    // Wait for Claude to finish (result message or timeout)
+    await new Promise<void>((resolve) => {
+      let finished = false
+
+      claude.onMessage((msg) => {
+        if (msg.type === 'result' && !finished) {
+          finished = true
+          setTimeout(resolve, 500) // Small delay to collect final messages
+        }
+      })
+
+      claude.onExit(() => {
+        if (!finished) {
+          finished = true
+          resolve()
+        }
+      })
+
+      // Timeout after 2 minutes
+      setTimeout(() => {
+        if (!finished) {
+          finished = true
+          claude.child.kill()
+          resolve()
+        }
+      }, 120000)
+    })
+
+    // Return the responses
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({
+      sessionId,
+      messageCount: responses.length,
+      responses
+    }))
+    return
+  }
+
+  // Send message to most recent Claude session
+  if (url.pathname === '/api/claude/send' && req.method === 'POST') {
+    const sessionId = getMostRecentSession(CWD)
+    if (!sessionId) {
+      res.writeHead(404, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'No Claude sessions found. Start a claude session first.' }))
+      return
+    }
+
+    let body = ''
+    for await (const chunk of req) {
+      body += chunk
+    }
+    const { text } = JSON.parse(body || '{}')
+    if (!text) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'text is required' }))
+      return
+    }
+
+    console.log(`[server] Sending to most recent session ${sessionId}: ${text.slice(0, 50)}...`)
+
+    const responses: unknown[] = []
+    const claude = spawnClaude({
+      cwd: CWD,
+      resume: sessionId,
+      onMessage: (msg) => {
+        responses.push(msg)
+        ws.broadcast({ type: 'claude_message', message: msg })
+      }
+    })
+
+    claude.send(text)
+
+    await new Promise<void>((resolve) => {
+      let finished = false
+
+      claude.onMessage((msg) => {
+        if (msg.type === 'result' && !finished) {
+          finished = true
+          setTimeout(resolve, 500)
+        }
+      })
+
+      claude.onExit(() => {
+        if (!finished) {
+          finished = true
+          resolve()
+        }
+      })
+
+      setTimeout(() => {
+        if (!finished) {
+          finished = true
+          claude.child.kill()
+          resolve()
+        }
+      }, 120000)
+    })
+
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({
+      sessionId,
+      messageCount: responses.length,
+      responses
     }))
     return
   }
@@ -346,6 +486,8 @@ API Endpoints:
   GET  /api/claude/sessions       List Claude sessions (from ~/.claude)
   GET  /api/claude/sessions/:id   Get Claude session messages
   GET  /api/claude/current        Get most recent Claude session
+  POST /api/claude/sessions/:id/send  Send message to session (resumes it)
+  POST /api/claude/send           Send message to most recent session
 
   GET  /api/sessions              List Sidecar sessions
   POST /api/sessions              Create session

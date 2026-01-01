@@ -3,22 +3,85 @@
  * Test script to simulate a phone client
  *
  * Usage:
- * 1. Terminal 1: pnpm --filter @sidecar/server start
- * 2. Terminal 2: cd packages/server && npx tsx src/cli.ts
- * 3. Terminal 3: cd packages/server && npx tsx src/test-phone.ts "Your message"
+ *   # WebSocket mode (takes over sidecar CLI):
+ *   pnpm test:phone "Your message"
  *
- * Or with node directly:
- *   node --loader ts-node/esm packages/server/src/test-phone.ts "message"
+ *   # API mode (resumes any Claude session):
+ *   pnpm test:phone --session-id <id> "Your message"
+ *   pnpm test:phone -s <id> "Your message"
+ *   pnpm test:phone --latest "Your message"  # Use most recent session
  */
 
 import WebSocket from 'ws'
 
+const API_URL = 'http://localhost:3456'
 const WS_URL = 'ws://localhost:3456'
 
-async function main() {
-  const message = process.argv[2] || 'Hello from phone! What is 2+2?'
+// Parse arguments
+function parseArgs() {
+  const args = process.argv.slice(2)
+  let sessionId: string | null = null
+  let useLatest = false
+  let message = 'Hello from phone! What is 2+2?'
 
-  console.log('Connecting to Sidecar server...')
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--session-id' || args[i] === '-s') {
+      sessionId = args[i + 1]
+      i++
+    } else if (args[i] === '--latest' || args[i] === '-l') {
+      useLatest = true
+    } else if (!args[i].startsWith('-')) {
+      message = args[i]
+    }
+  }
+
+  return { sessionId, useLatest, message }
+}
+
+// API mode: send via HTTP POST (resumes session)
+async function sendViaAPI(sessionId: string | null, message: string) {
+  const endpoint = sessionId
+    ? `${API_URL}/api/claude/sessions/${sessionId}/send`
+    : `${API_URL}/api/claude/send`
+
+  console.log(`Sending via API to ${sessionId || 'most recent session'}...`)
+  console.log(`Message: "${message}"`)
+  console.log(`Endpoint: ${endpoint}\n`)
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: message })
+  })
+
+  const data = await response.json()
+
+  if (!response.ok) {
+    console.error('Error:', data.error || 'Unknown error')
+    process.exit(1)
+  }
+
+  console.log(`Session: ${data.sessionId}`)
+  console.log(`Responses: ${data.messageCount}\n`)
+
+  // Print Claude's response
+  for (const msg of data.responses || []) {
+    if (msg.type === 'assistant') {
+      const content = msg.message?.content
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (block.type === 'text' && block.text) {
+            console.log('Claude:', block.text)
+          }
+        }
+      }
+    }
+  }
+}
+
+// WebSocket mode: take over sidecar CLI
+async function sendViaWebSocket(message: string) {
+  console.log('Connecting to Sidecar server (WebSocket mode)...')
   console.log(`Will send message: "${message}"`)
 
   const ws = new WebSocket(WS_URL)
@@ -91,6 +154,19 @@ async function main() {
     console.log('\nTest complete, closing connection...')
     ws.close()
   }, 30000)
+}
+
+// Main entry point
+async function main() {
+  const { sessionId, useLatest, message } = parseArgs()
+
+  // If --session-id or --latest provided, use API mode
+  if (sessionId || useLatest) {
+    await sendViaAPI(sessionId, message)
+  } else {
+    // Otherwise use WebSocket mode (takes over sidecar CLI)
+    await sendViaWebSocket(message)
+  }
 }
 
 main().catch(console.error)
