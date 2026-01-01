@@ -168,10 +168,22 @@ export function useSessions(apiUrl: string) {
   }, [apiUrl])
 
   // Select a session
-  const selectSession = useCallback((sessionId: string) => {
+  const selectSession = useCallback(async (sessionId: string) => {
     setCurrentSessionId(sessionId)
     setMessages([])
     setPendingPermission(null)
+
+    // Fetch messages for this session directly (don't rely on useEffect)
+    setLoading(true)
+    try {
+      const res = await fetch(apiUrl + '/api/claude/sessions/' + sessionId)
+      const data: SessionMessagesResponse = await res.json()
+      setMessages(data.messages)
+    } catch (e) {
+      console.error('Failed to fetch messages:', e)
+    } finally {
+      setLoading(false)
+    }
 
     // Fetch slash commands for this session
     fetchSlashCommands(sessionId)
@@ -181,7 +193,7 @@ export function useSessions(apiUrl: string) {
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'watch_session', sessionId }))
     }
-  }, [fetchSlashCommands])
+  }, [apiUrl, fetchSlashCommands])
 
   // Send permission response via WebSocket
   const respondToPermission = useCallback(async (allow: boolean, options?: { answers?: Record<string, string[]>; allowAll?: boolean }) => {
@@ -291,12 +303,7 @@ export function useSessions(apiUrl: string) {
     }
   }, [currentProject, fetchSessions])
 
-  // Fetch messages when session changes
-  useEffect(() => {
-    fetchMessages()
-  }, [fetchMessages])
-
-  // No polling needed - WebSocket handles real-time updates via claude_message events
+  // No polling needed - selectSession fetches messages directly, WebSocket handles real-time updates
 
   return {
     projects,
