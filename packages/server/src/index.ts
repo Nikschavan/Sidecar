@@ -8,6 +8,7 @@ import { createServer } from 'node:http'
 import { WebSocketServer } from 'ws'
 import { createWSServer, type WSClient } from './ws/server.js'
 import { createSessionManager } from './session/manager.js'
+import { listClaudeSessions, readClaudeSession, getMostRecentSession } from './claude/sessions.js'
 import type { ClientMessage } from '@sidecar/shared'
 
 const PORT = parseInt(process.env.PORT || '3456', 10)
@@ -18,6 +19,11 @@ const sessionManager = createSessionManager()
 
 // Track which session each client is subscribed to
 const clientSessions = new Map<string, string>()
+
+// Track CLI client and phone clients for relay mode
+let cliClient: WSClient | null = null
+let currentClaudeSessionId: string | null = null
+const phoneClients = new Set<WSClient>()
 
 // Create HTTP server
 const httpServer = createServer(async (req, res) => {
@@ -34,10 +40,77 @@ const httpServer = createServer(async (req, res) => {
 
   const url = new URL(req.url || '/', `http://localhost:${PORT}`)
 
+  // Root endpoint
+  if (url.pathname === '/') {
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({
+      name: 'Sidecar Server',
+      version: '0.0.1',
+      status: 'ok',
+      endpoints: {
+        health: '/health',
+        sessions: '/api/sessions',
+        websocket: 'ws://localhost:3456'
+      }
+    }))
+    return
+  }
+
   // Health check
   if (url.pathname === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ status: 'ok' }))
+    return
+  }
+
+  // List Claude sessions (read directly from Claude's files)
+  if (url.pathname === '/api/claude/sessions' && req.method === 'GET') {
+    const sessions = listClaudeSessions(CWD)
+    const recentId = getMostRecentSession(CWD)
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({
+      cwd: CWD,
+      mostRecent: recentId,
+      sessions: sessions.map((s) => ({
+        id: s.id,
+        modifiedAt: s.modifiedAt.toISOString(),
+        size: s.size
+      }))
+    }))
+    return
+  }
+
+  // Get Claude session messages
+  const claudeSessionMatch = url.pathname.match(/^\/api\/claude\/sessions\/([^/]+)$/)
+  if (claudeSessionMatch && req.method === 'GET') {
+    const sessionId = claudeSessionMatch[1]
+    const messages = readClaudeSession(CWD, sessionId)
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({
+      sessionId,
+      cwd: CWD,
+      messageCount: messages.length,
+      messages
+    }))
+    return
+  }
+
+  // Get most recent Claude session
+  if (url.pathname === '/api/claude/current' && req.method === 'GET') {
+    const sessionId = getMostRecentSession(CWD)
+    if (!sessionId) {
+      res.writeHead(404, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'No Claude sessions found' }))
+      return
+    }
+    const messages = readClaudeSession(CWD, sessionId)
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({
+      sessionId,
+      cwd: CWD,
+      messageCount: messages.length,
+      messages
+    }))
     return
   }
 
@@ -123,12 +196,69 @@ const ws = createWSServer(wss, {
     })
   },
 
-  onMessage(client, message: ClientMessage & { sessionId?: string }) {
+  onMessage(client, message: ClientMessage) {
     console.log(`[server] Received from ${client.id}:`, message.type)
 
-    // Handle subscribe to session
-    if (message.type === 'subscribe' && 'sessionId' in message) {
-      const sessionId = (message as any).sessionId as string
+    // CLI client registration
+    if (message.type === 'register_cli') {
+      console.log(`[server] CLI registered: ${client.id}`)
+      cliClient = client
+      return
+    }
+
+    // CLI sets the Claude session ID
+    if (message.type === 'set_session') {
+      currentClaudeSessionId = message.sessionId
+      console.log(`[server] Claude session: ${currentClaudeSessionId}`)
+      // Notify phone clients
+      phoneClients.forEach((phone) => {
+        phone.send({ type: 'session_update', sessionId: currentClaudeSessionId })
+      })
+      return
+    }
+
+    // CLI forwards Claude message to phones
+    if (message.type === 'claude_message') {
+      console.log(`[server] Claude message → ${phoneClients.size} phone(s)`)
+      phoneClients.forEach((phone) => {
+        phone.send({ type: 'claude_message', message: message.message })
+      })
+      return
+    }
+
+    // Phone registration
+    if (message.type === 'register_phone') {
+      console.log(`[server] Phone registered: ${client.id}`)
+      phoneClients.add(client)
+      // Send current session info
+      if (currentClaudeSessionId) {
+        client.send({ type: 'session_update', sessionId: currentClaudeSessionId })
+      }
+      return
+    }
+
+    // Phone sends message to CLI
+    if (message.type === 'phone_send') {
+      const text = message.text
+      console.log(`[server] Phone message → CLI: ${text.slice(0, 50)}...`)
+      if (cliClient) {
+        cliClient.send({ type: 'phone_message', text })
+      }
+      return
+    }
+
+    // Phone wants to take over (switch CLI to remote mode)
+    if (message.type === 'take_over') {
+      console.log(`[server] Phone taking over`)
+      if (cliClient) {
+        cliClient.send({ type: 'switch_to_remote' })
+      }
+      return
+    }
+
+    // Handle subscribe to session (legacy/web client mode)
+    if (message.type === 'subscribe') {
+      const sessionId = message.sessionId
       const session = sessionManager.getSession(sessionId)
       if (session) {
         clientSessions.set(client.id, sessionId)
@@ -149,7 +279,7 @@ const ws = createWSServer(wss, {
       return
     }
 
-    // Handle send message
+    // Handle send message (legacy/web client mode)
     if (message.type === 'send') {
       let sessionId = clientSessions.get(client.id)
 
@@ -175,6 +305,11 @@ const ws = createWSServer(wss, {
 
   onClose(client) {
     clientSessions.delete(client.id)
+    phoneClients.delete(client)
+    if (cliClient?.id === client.id) {
+      console.log(`[server] CLI disconnected`)
+      cliClient = null
+    }
   }
 })
 
@@ -208,7 +343,11 @@ httpServer.listen(PORT, () => {
 └─────────────────────────────────────────┘
 
 API Endpoints:
-  GET  /api/sessions              List sessions
+  GET  /api/claude/sessions       List Claude sessions (from ~/.claude)
+  GET  /api/claude/sessions/:id   Get Claude session messages
+  GET  /api/claude/current        Get most recent Claude session
+
+  GET  /api/sessions              List Sidecar sessions
   POST /api/sessions              Create session
   GET  /api/sessions/:id          Get session
   GET  /api/sessions/:id/messages Get messages

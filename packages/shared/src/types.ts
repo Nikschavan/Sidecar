@@ -46,10 +46,43 @@ export interface ClaudeResultMessage {
 
 export type ClaudeMessage = ClaudeSystemInit | ClaudeAssistantMessage | ClaudeResultMessage | { type: string; [key: string]: unknown }
 
+// Question option (from AskUserQuestion tool)
+export interface QuestionOption {
+  label: string
+  description: string
+}
+
+// Question (from AskUserQuestion tool)
+export interface Question {
+  question: string
+  header: string
+  options: QuestionOption[]
+  multiSelect: boolean
+}
+
+// Tool call made by Claude
+export interface ToolCall {
+  id: string
+  name: string
+  input: unknown
+}
+
 // Chat message (simplified for UI)
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
   timestamp: string
+  // Tool calls made by Claude (Read, Edit, Bash, AskUserQuestion, etc.)
+  toolCalls?: ToolCall[]
+}
+
+// Helper to check if message has pending question
+export function getPendingQuestion(message: ChatMessage): Question[] | null {
+  const askQuestion = message.toolCalls?.find((t) => t.name === 'AskUserQuestion')
+  if (askQuestion && typeof askQuestion.input === 'object' && askQuestion.input !== null) {
+    const input = askQuestion.input as { questions?: Question[] }
+    return input.questions || null
+  }
+  return null
 }

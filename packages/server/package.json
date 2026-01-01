@@ -4,18 +4,22 @@
   "type": "module",
   "main": "./dist/index.js",
   "bin": {
-    "sidecar": "./dist/index.js"
+    "sidecar": "./dist/cli.js",
+    "sidecar-server": "./dist/index.js"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "dev:cli": "tsx src/cli.ts",
     "build": "tsc",
     "start": "node dist/index.js",
+    "start:cli": "node dist/cli.js",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
     "test": "tsx src/test.ts"
   },
   "dependencies": {
     "@sidecar/shared": "workspace:*",
+    "node-pty": "^1.1.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {

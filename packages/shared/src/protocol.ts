@@ -30,12 +30,37 @@ export interface ServerErrorMessage {
   error: string
 }
 
+// Server -> CLI messages
+export interface ServerPhoneMessage {
+  type: 'phone_message'
+  text: string
+}
+
+export interface ServerSwitchToRemoteMessage {
+  type: 'switch_to_remote'
+}
+
+// Server -> Phone messages
+export interface ServerSessionUpdateMessage {
+  type: 'session_update'
+  sessionId: string | null
+}
+
+export interface ServerClaudeMessageMessage {
+  type: 'claude_message'
+  message: unknown
+}
+
 export type ServerMessage =
   | ServerConnectedMessage
   | ServerHistoryMessage
   | ServerMessageMessage
   | ServerStateChangeMessage
   | ServerErrorMessage
+  | ServerPhoneMessage
+  | ServerSwitchToRemoteMessage
+  | ServerSessionUpdateMessage
+  | ServerClaudeMessageMessage
 
 // Client -> Server messages
 export interface ClientSendMessage {
@@ -52,4 +77,48 @@ export interface ClientPingMessage {
   type: 'ping'
 }
 
-export type ClientMessage = ClientSendMessage | ClientSubscribeMessage | ClientPingMessage
+// CLI client messages
+export interface ClientRegisterCliMessage {
+  type: 'register_cli'
+  timestamp: string
+}
+
+export interface ClientSetSessionMessage {
+  type: 'set_session'
+  sessionId: string
+  timestamp: string
+}
+
+export interface ClientClaudeMessageMessage {
+  type: 'claude_message'
+  message: unknown
+  timestamp: string
+}
+
+// Phone client messages
+export interface ClientRegisterPhoneMessage {
+  type: 'register_phone'
+  timestamp: string
+}
+
+export interface ClientPhoneSendMessage {
+  type: 'phone_send'
+  text: string
+  timestamp: string
+}
+
+export interface ClientTakeOverMessage {
+  type: 'take_over'
+  timestamp: string
+}
+
+export type ClientMessage =
+  | ClientSendMessage
+  | ClientSubscribeMessage
+  | ClientPingMessage
+  | ClientRegisterCliMessage
+  | ClientSetSessionMessage
+  | ClientClaudeMessageMessage
+  | ClientRegisterPhoneMessage
+  | ClientPhoneSendMessage
+  | ClientTakeOverMessage
