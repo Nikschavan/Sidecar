@@ -1,17 +1,19 @@
 {
   "name": "sidecar",
-  "version": "0.0.1",
-  "description": "Stream Claude Code to your phone",
-  "type": "module",
+  "private": true,
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "build": "tsc",
-    "start": "node dist/index.js",
-    "test": "tsx src/spawn-claude.ts"
+    "dev": "pnpm --filter @sidecar/server dev",
+    "dev:web": "pnpm --filter @sidecar/web dev",
+    "dev:all": "concurrently \"pnpm dev\" \"pnpm dev:web\" --kill-others-on-fail",
+    "build": "pnpm -r build",
+    "build:server": "pnpm --filter @sidecar/server build",
+    "build:web": "pnpm --filter @sidecar/web build",
+    "typecheck": "pnpm -r typecheck",
+    "clean": "pnpm -r clean",
+    "test": "pnpm --filter @sidecar/server test"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
-    "tsx": "^4.0.0",
+    "concurrently": "^9.0.0",
     "typescript": "^5.0.0"
   }
 }
