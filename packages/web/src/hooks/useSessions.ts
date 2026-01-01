@@ -231,16 +231,21 @@ export function useSessions(apiUrl: string) {
 
         // Handle permission request from server
         if (msg.type === 'permission_request') {
-          console.log('[useSessions] Permission request:', msg.toolName, msg.input, 'source:', msg.source)
-          setPendingPermission({
-            requestId: msg.requestId,
-            sessionId: msg.sessionId,
-            toolName: msg.toolName,
-            toolUseId: msg.toolUseId,
-            input: msg.input,
-            permissionSuggestions: msg.permissionSuggestions,
-            source: msg.source
-          })
+          // Only show permission dialogs for the current session
+          if (msg.sessionId === currentSessionId) {
+            console.log('[useSessions] Permission request:', msg.toolName, msg.input, 'source:', msg.source)
+            setPendingPermission({
+              requestId: msg.requestId,
+              sessionId: msg.sessionId,
+              toolName: msg.toolName,
+              toolUseId: msg.toolUseId,
+              input: msg.input,
+              permissionSuggestions: msg.permissionSuggestions,
+              source: msg.source
+            })
+          } else {
+            console.log('[useSessions] Ignoring permission request for different session:', msg.sessionId, '(current:', currentSessionId, ')')
+          }
         }
 
         // Handle claude message (refresh messages)
@@ -282,12 +287,13 @@ export function useSessions(apiUrl: string) {
     fetchMessages()
   }, [fetchMessages])
 
-  // Poll for updates every 3 seconds
+  // Poll for updates only when sending (waiting for response)
+  // WebSocket handles real-time updates, so we only need polling as a fallback during active sends
   useEffect(() => {
+    if (!sending) return
+
     const interval = setInterval(() => {
-      if (!sending) {
-        fetchMessages()
-      }
+      fetchMessages()
     }, 3000)
     return () => clearInterval(interval)
   }, [fetchMessages, sending])
