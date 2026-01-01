@@ -1,6 +1,7 @@
 import type { ChatMessage } from '@sidecar/shared'
 import { ChatView } from '../components/ChatView'
 import { InputBar } from '../components/InputBar'
+import { AskUserQuestion } from '../components/AskUserQuestion'
 
 interface PendingPermission {
   requestId: string
@@ -23,7 +24,7 @@ interface ChatScreenProps {
   pendingPermission: PendingPermission | null
   onSend: (text: string) => void
   onBack: () => void
-  onPermissionResponse: (allow: boolean) => void
+  onPermissionResponse: (allow: boolean, answers?: Record<string, string[]>) => void
 }
 
 export function ChatScreen({
@@ -69,8 +70,17 @@ export function ChatScreen({
         sending={sending}
       />
 
-      {/* Permission prompt */}
-      {pendingPermission && (
+      {/* AskUserQuestion dialog */}
+      {pendingPermission && pendingPermission.toolName === 'AskUserQuestion' && (
+        <AskUserQuestion
+          input={pendingPermission.input}
+          onSubmit={(answers) => onPermissionResponse(true, answers)}
+          onCancel={() => onPermissionResponse(false)}
+        />
+      )}
+
+      {/* Generic permission prompt */}
+      {pendingPermission && pendingPermission.toolName !== 'AskUserQuestion' && (
         <div className="bg-amber-900/50 border-t border-amber-700 p-4">
           <div className="text-sm text-amber-200 mb-2">
             Claude wants to use <span className="font-semibold">{pendingPermission.toolName}</span>

@@ -157,18 +157,25 @@ export function useSessions(apiUrl: string) {
   }, [])
 
   // Send permission response via WebSocket
-  const respondToPermission = useCallback(async (allow: boolean) => {
+  const respondToPermission = useCallback(async (allow: boolean, answers?: Record<string, string[]>) => {
     if (!pendingPermission) return
 
     const ws = wsRef.current
     if (ws && ws.readyState === WebSocket.OPEN) {
+      // For AskUserQuestion, include answers in the updatedInput
+      let updatedInput = allow ? pendingPermission.input : undefined
+      if (allow && answers) {
+        updatedInput = { ...pendingPermission.input, answers }
+      }
+
       // Send via WebSocket
       ws.send(JSON.stringify({
         type: 'permission_response',
         sessionId: pendingPermission.sessionId,
         requestId: pendingPermission.requestId,
         allow,
-        updatedInput: allow ? pendingPermission.input : undefined
+        updatedInput,
+        answers  // Also send answers separately for clarity
       }))
       setPendingPermission(null)
     } else {
