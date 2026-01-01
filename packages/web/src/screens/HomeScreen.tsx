@@ -65,13 +65,6 @@ export function HomeScreen({
         </select>
       </div>
 
-      {/* Status indicator */}
-      {currentProject && (
-        <div className="px-4 pb-2">
-          <span className="text-xs text-claude-text-dim">Idle</span>
-        </div>
-      )}
-
       {/* Sessions list */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden px-4">
         {!currentProject ? (
