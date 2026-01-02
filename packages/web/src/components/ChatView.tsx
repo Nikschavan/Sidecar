@@ -1,5 +1,8 @@
 import { useEffect, useRef, useCallback, memo } from 'react'
 import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import type { ChatMessage } from '@sidecar/shared'
 import { ToolCard } from './ToolCard'
 
@@ -106,8 +109,39 @@ const MessageBubble = memo(function MessageBubble({ message }: { message: ChatMe
           prose-code:text-claude-coral prose-code:bg-claude-surface prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm prose-code:before:content-none prose-code:after:content-none prose-code:break-all
           prose-pre:bg-claude-surface prose-pre:border prose-pre:border-claude-border prose-pre:rounded-lg prose-pre:overflow-x-auto
           prose-li:my-0.5
-          prose-ol:my-2 prose-ul:my-2">
-          <Markdown>{message.content}</Markdown>
+          prose-ol:my-2 prose-ul:my-2
+          prose-table:border-collapse prose-table:w-full prose-table:my-4
+          prose-th:border prose-th:border-claude-border prose-th:bg-claude-surface prose-th:px-3 prose-th:py-2 prose-th:text-left prose-th:font-semibold
+          prose-td:border prose-td:border-claude-border prose-td:px-3 prose-td:py-2">
+          <Markdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              code({ className, children, ...props }) {
+                const match = /language-(\w+)/.exec(className || '')
+                const isInline = !match && !String(children).includes('\n')
+                return isInline ? (
+                  <code className={className} {...props}>
+                    {children}
+                  </code>
+                ) : (
+                  <SyntaxHighlighter
+                    style={oneDark}
+                    language={match ? match[1] : 'text'}
+                    PreTag="div"
+                    customStyle={{
+                      margin: 0,
+                      borderRadius: '0.5rem',
+                      fontSize: '0.875rem',
+                    }}
+                  >
+                    {String(children).replace(/\n$/, '')}
+                  </SyntaxHighlighter>
+                )
+              },
+            }}
+          >
+            {message.content}
+          </Markdown>
         </div>
       )}
 
