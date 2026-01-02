@@ -38,6 +38,10 @@ const allowedToolsBySession = new Map<string, Set<string>>()
 // Track which sessions clients are watching (for file-based permission detection and message updates)
 const watchedSessions = new Map<string, { projectPath: string; lastPendingIds: Set<string>; lastMessageCount: number }>()
 
+// Track client-session watching relationships for proper cleanup
+const clientWatchingSession = new Map<string, string>() // clientId -> sessionId
+const sessionWatchers = new Map<string, Set<string>>() // sessionId -> Set<clientId>
+
 // Track pending file-based permissions that were broadcast (waiting for user response)
 // Maps toolId -> { tool, sessionId } so we can re-send on page reload
 const pendingFilePermissions = new Map<string, { tool: PendingToolCall; sessionId: string }>()
@@ -799,6 +803,28 @@ const ws = createWSServer(wss, {
       const { sessionId } = message as { sessionId: string }
       const projectPath = findSessionProject(sessionId)
       if (projectPath) {
+        // If client was watching a different session, unwatch it first
+        const previousSessionId = clientWatchingSession.get(client.id)
+        if (previousSessionId && previousSessionId !== sessionId) {
+          const watchers = sessionWatchers.get(previousSessionId)
+          if (watchers) {
+            watchers.delete(client.id)
+            // If no more watchers, stop watching this session
+            if (watchers.size === 0) {
+              console.log(`[server] No more watchers for session ${previousSessionId}, stopping watch`)
+              watchedSessions.delete(previousSessionId)
+              sessionWatchers.delete(previousSessionId)
+            }
+          }
+        }
+
+        // Track this client watching this session
+        clientWatchingSession.set(client.id, sessionId)
+        if (!sessionWatchers.has(sessionId)) {
+          sessionWatchers.set(sessionId, new Set())
+        }
+        sessionWatchers.get(sessionId)!.add(client.id)
+
         // Don't reset if already watching - preserve lastPendingIds
         if (!watchedSessions.has(sessionId)) {
           console.log(`[server] Client ${client.id} watching session ${sessionId}`)
@@ -827,7 +853,7 @@ const ws = createWSServer(wss, {
             lastMessageCount: sessionData.messages.length
           })
         } else {
-          console.log(`[server] Client ${client.id} already watching session ${sessionId}`)
+          console.log(`[server] Client ${client.id} joining watch for session ${sessionId} (${sessionWatchers.get(sessionId)?.size} watchers)`)
         }
 
         // Re-send any pending permissions for this session (handles page reload case)
@@ -909,6 +935,24 @@ const ws = createWSServer(wss, {
     if (cliClient?.id === client.id) {
       console.log(`[server] CLI disconnected`)
       cliClient = null
+    }
+
+    // Clean up session watching
+    const sessionId = clientWatchingSession.get(client.id)
+    if (sessionId) {
+      clientWatchingSession.delete(client.id)
+      const watchers = sessionWatchers.get(sessionId)
+      if (watchers) {
+        watchers.delete(client.id)
+        // If no more watchers, stop watching this session
+        if (watchers.size === 0) {
+          console.log(`[server] No more watchers for session ${sessionId}, stopping watch`)
+          watchedSessions.delete(sessionId)
+          sessionWatchers.delete(sessionId)
+        } else {
+          console.log(`[server] Client disconnected, ${watchers.size} watchers remaining for session ${sessionId}`)
+        }
+      }
     }
   }
 })
