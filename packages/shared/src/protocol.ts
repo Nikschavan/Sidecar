@@ -68,6 +68,13 @@ export interface ServerPermissionRequestMessage {
   source?: 'process' | 'file' // 'process' = active spawn, 'file' = detected from session file
 }
 
+// Permission resolved (was handled in terminal)
+export interface ServerPermissionResolvedMessage {
+  type: 'permission_resolved'
+  sessionId: string
+  toolId: string
+}
+
 export type ServerMessage =
   | ServerConnectedMessage
   | ServerHistoryMessage
@@ -79,6 +86,7 @@ export type ServerMessage =
   | ServerSessionUpdateMessage
   | ServerClaudeMessageMessage
   | ServerPermissionRequestMessage
+  | ServerPermissionResolvedMessage
 
 // Client -> Server messages
 export interface ClientSendMessage {

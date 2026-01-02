@@ -8,7 +8,7 @@ import { createServer } from 'node:http'
 import { WebSocketServer } from 'ws'
 import { createWSServer, type WSClient } from './ws/server.js'
 import { createSessionManager } from './session/manager.js'
-import { listClaudeSessions, readClaudeSession, getMostRecentSession, listAllProjects, findSessionProject, readSessionData, getSessionMetadata, type PendingToolCall } from './claude/sessions.js'
+import { listClaudeSessions, readClaudeSession, getMostRecentSession, listAllProjects, findSessionProject, readSessionData, getSessionMetadata, isSessionActive, type PendingToolCall } from './claude/sessions.js'
 import { spawnClaude, type ClaudeProcess, type PermissionRequest } from './claude/spawn.js'
 import type { ClientMessage } from '@sidecar/shared'
 
@@ -39,7 +39,8 @@ const allowedToolsBySession = new Map<string, Set<string>>()
 const watchedSessions = new Map<string, { projectPath: string; lastPendingIds: Set<string>; lastMessageCount: number }>()
 
 // Track pending file-based permissions that were broadcast (waiting for user response)
-const pendingFilePermissions = new Map<string, PendingToolCall>()
+// Maps toolId -> { tool, sessionId } so we can re-send on page reload
+const pendingFilePermissions = new Map<string, { tool: PendingToolCall; sessionId: string }>()
 
 // Track sessions currently being approved via resume (to avoid re-detecting during approval)
 const sessionsBeingApproved = new Set<string>()
@@ -801,15 +802,48 @@ const ws = createWSServer(wss, {
         // Don't reset if already watching - preserve lastPendingIds
         if (!watchedSessions.has(sessionId)) {
           console.log(`[server] Client ${client.id} watching session ${sessionId}`)
-          // Get initial message count to avoid broadcasting existing messages
-          const existingMessages = readClaudeSession(projectPath, sessionId)
+          // Get initial data
+          const sessionData = readSessionData(projectPath, sessionId)
+
+          // Check if this session is actively being used (file modified recently)
+          // Use 30 second threshold to be lenient - if file was modified in last 30s, consider it active
+          const sessionIsActive = isSessionActive(projectPath, sessionId, 30)
+
+          // For stale sessions, pre-populate lastPendingIds with existing pending tools
+          // This prevents showing permission modals for old/abandoned sessions
+          const initialPendingIds = new Set<string>()
+          if (!sessionIsActive) {
+            for (const tool of sessionData.pendingToolCalls) {
+              initialPendingIds.add(tool.id)
+            }
+            console.log(`[server] Session ${sessionId} is stale, pre-populating ${initialPendingIds.size} pending tool IDs`)
+          } else {
+            console.log(`[server] Session ${sessionId} is active (recently modified)`)
+          }
+
           watchedSessions.set(sessionId, {
             projectPath,
-            lastPendingIds: new Set(),
-            lastMessageCount: existingMessages.length
+            lastPendingIds: initialPendingIds,
+            lastMessageCount: sessionData.messages.length
           })
         } else {
           console.log(`[server] Client ${client.id} already watching session ${sessionId}`)
+        }
+
+        // Re-send any pending permissions for this session (handles page reload case)
+        for (const [toolId, entry] of pendingFilePermissions) {
+          if (entry.sessionId === sessionId) {
+            console.log(`[server] Re-sending pending permission for ${entry.tool.name} (${toolId}) on watch`)
+            client.send({
+              type: 'permission_request',
+              sessionId,
+              requestId: toolId,
+              toolName: entry.tool.name,
+              toolUseId: toolId,
+              input: entry.tool.input as Record<string, unknown>,
+              source: 'file'
+            })
+          }
         }
       }
       return
@@ -841,13 +875,13 @@ const ws = createWSServer(wss, {
       }
 
       // Check if this is a file-based permission (Claude running in terminal)
-      const pendingTool = pendingFilePermissions.get(requestId)
-      if (pendingTool) {
+      const pendingEntry = pendingFilePermissions.get(requestId)
+      if (pendingEntry) {
         pendingFilePermissions.delete(requestId)
         const watched = watchedSessions.get(sessionId)
         if (watched && allow) {
           console.log(`[server] Approving file-based permission via resume`)
-          approveToolViaResume(sessionId, watched.projectPath, pendingTool)
+          approveToolViaResume(sessionId, watched.projectPath, pendingEntry.tool)
         } else if (!allow) {
           console.log(`[server] User denied file-based permission - cannot deny terminal Claude`)
           // Note: We can't actually deny permissions for terminal Claude
@@ -920,15 +954,57 @@ setInterval(() => {
       watchedSession.lastMessageCount = sessionData.messages.length
     }
 
+    // Check if any previously-pending tools are now resolved (have results)
+    // This happens when user accepts permission in terminal
+    const currentPendingIds = new Set(sessionData.pendingToolCalls.map(t => t.id))
+    for (const toolId of lastPendingIds) {
+      // If a tool was in lastPendingIds but is no longer pending, it was resolved
+      if (!currentPendingIds.has(toolId) && pendingFilePermissions.has(toolId)) {
+        console.log(`[server] Permission resolved (handled in terminal): ${toolId}`)
+        pendingFilePermissions.delete(toolId)
+        // Broadcast to web clients to clear the modal
+        ws.broadcast({
+          type: 'permission_resolved',
+          sessionId,
+          toolId
+        })
+      }
+    }
+
     // Skip permission detection if there's already an active process for this session
     if (activeProcesses.has(sessionId)) continue
 
     // Skip if we're currently approving a permission for this session
     if (sessionsBeingApproved.has(sessionId)) continue
 
+    // Only detect permissions if the session file was recently modified (active terminal Claude)
+    // This prevents showing stale permission modals for inactive sessions
+    // Use 30 second threshold to be more lenient with active sessions
+    if (!isSessionActive(projectPath, sessionId, 30)) {
+      // Session is stale - just track the pending IDs to prevent future broadcasts
+      for (const tool of sessionData.pendingToolCalls) {
+        if (!lastPendingIds.has(tool.id)) {
+          console.log(`[server] Session ${sessionId} is stale (file not modified in 30s), skipping pending tool ${tool.name}`)
+          lastPendingIds.add(tool.id)
+        }
+      }
+      continue
+    }
+
     for (const tool of sessionData.pendingToolCalls) {
       // Skip if we already broadcast this one
       if (lastPendingIds.has(tool.id)) continue
+
+      // Additional check: skip if the tool timestamp is older than 30 seconds
+      // This handles cases where the session file is active but this specific tool is stale
+      const toolTimestamp = new Date(tool.timestamp)
+      const now = new Date()
+      const toolAgeMs = now.getTime() - toolTimestamp.getTime()
+      if (toolAgeMs > 30000) {
+        console.log(`[server] Skipping stale pending tool ${tool.name} (age: ${Math.round(toolAgeMs / 1000)}s)`)
+        lastPendingIds.add(tool.id)
+        continue
+      }
 
       // Check if tool is already allowed
       const allowedTools = allowedToolsBySession.get(sessionId)
@@ -942,7 +1018,7 @@ setInterval(() => {
 
       console.log(`[server] File-detected pending permission: ${tool.name} (${tool.id})`)
       lastPendingIds.add(tool.id)
-      pendingFilePermissions.set(tool.id, tool)
+      pendingFilePermissions.set(tool.id, { tool, sessionId })
 
       // Broadcast to web clients
       ws.broadcast({

@@ -329,9 +329,38 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
           }
         }
 
+        // Handle permission resolved from server (permission was handled in terminal)
+        if (msg.type === 'permission_resolved') {
+          if (msg.sessionId === currentSessionId) {
+            console.log('[useSessions] Permission resolved (handled in terminal):', msg.toolId)
+            setPendingPermission(prev => {
+              // Clear if the resolved tool matches our pending permission
+              if (prev && (prev.toolUseId === msg.toolId || prev.requestId === msg.toolId)) {
+                return null
+              }
+              return prev
+            })
+          }
+        }
+
         // Handle claude message - append to existing messages instead of full refetch
         // Only update if message is for the current session
         if (msg.type === 'claude_message' && msg.message && (!msg.sessionId || msg.sessionId === currentSessionId)) {
+          // Check if the pending permission's tool call now has a result
+          // This means permission was handled elsewhere (e.g., terminal)
+          setPendingPermission(prev => {
+            if (prev && prev.sessionId === currentSessionId && prev.toolUseId) {
+              // Check if this message contains the tool call with a result
+              const toolCalls = msg.message.toolCalls as Array<{ id: string; result?: string }> | undefined
+              const resolvedTool = toolCalls?.find(t => t.id === prev.toolUseId && t.result !== undefined)
+              if (resolvedTool) {
+                console.log('[useSessions] Tool call resolved, clearing pending permission (handled elsewhere)')
+                return null
+              }
+            }
+            return prev
+          })
+
           setMessages(prev => {
             // Check if message already exists (by id) to avoid duplicates
             const exists = prev.some(m => m.id === msg.message.id)

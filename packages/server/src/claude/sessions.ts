@@ -28,6 +28,33 @@ export function getProjectDir(cwd: string): string {
 }
 
 /**
+ * Get the session file modification time
+ * Returns null if file doesn't exist
+ */
+export function getSessionFileMtime(cwd: string, sessionId: string): Date | null {
+  const projectDir = getProjectDir(cwd)
+  const sessionFile = join(projectDir, `${sessionId}.jsonl`)
+  try {
+    if (!existsSync(sessionFile)) return null
+    const stats = statSync(sessionFile)
+    return stats.mtime
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Check if a session file was recently modified (within given seconds)
+ */
+export function isSessionActive(cwd: string, sessionId: string, withinSeconds: number = 5): boolean {
+  const mtime = getSessionFileMtime(cwd, sessionId)
+  if (!mtime) return false
+  const now = new Date()
+  const diffMs = now.getTime() - mtime.getTime()
+  return diffMs < withinSeconds * 1000
+}
+
+/**
  * Extract session name from a session file
  */
 function extractSessionName(filePath: string): string | null {
