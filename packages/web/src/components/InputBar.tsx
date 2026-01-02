@@ -176,10 +176,6 @@ export function InputBar({
       }
     }
 
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSubmit()
-    }
   }
 
   return (
