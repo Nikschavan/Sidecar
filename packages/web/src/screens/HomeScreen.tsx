@@ -52,19 +52,10 @@ export function HomeScreen({
     <div className="h-full flex flex-col bg-claude-bg overflow-x-hidden">
       {/* Header */}
       <header
-        className="px-4 flex items-center justify-between max-w-2xl mx-auto w-full"
+        className="px-4 max-w-2xl mx-auto w-full"
         style={{ paddingTop: 'max(env(safe-area-inset-top), 16px)', paddingBottom: '12px' }}
       >
-        {/* Project selector button */}
-        <button className="p-2 -ml-2 hover:bg-claude-bg-light rounded-full transition-colors">
-          <svg className="w-6 h-6 text-claude-text" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
-          </svg>
-        </button>
-
-        <h1 className="text-lg font-medium text-claude-text">Code</h1>
-
-        <div className="w-10" /> {/* Spacer for centering */}
+        <h1 className="text-lg font-medium text-claude-text">Sidecar</h1>
       </header>
 
       {/* Project dropdown */}

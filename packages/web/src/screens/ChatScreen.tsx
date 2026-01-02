@@ -51,27 +51,21 @@ export function ChatScreen({
     <div className="h-full flex flex-col bg-claude-bg overflow-x-hidden">
       {/* Header */}
       <header
-        className="px-4 flex items-center justify-between"
+        className="px-4 flex items-center gap-3"
         style={{ paddingTop: 'max(env(safe-area-inset-top), 12px)', paddingBottom: '12px' }}
       >
         <button
           onClick={onBack}
-          className="p-2 -ml-2 hover:bg-claude-bg-light rounded-full transition-colors"
+          className="p-2 -ml-2 hover:bg-claude-bg-light rounded-full transition-colors shrink-0"
         >
           <svg className="w-6 h-6 text-claude-text" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.75 19.5L8.25 12l7.5-7.5" />
           </svg>
         </button>
 
-        <h1 className="text-base font-medium text-claude-text truncate max-w-[60%]">
+        <h1 className="text-base font-medium text-claude-text truncate">
           {sessionName || 'Untitled session'}
         </h1>
-
-        <button className="p-2 -mr-2 hover:bg-claude-bg-light rounded-full transition-colors">
-          <svg className="w-6 h-6 text-claude-text" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM12.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM18.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
-          </svg>
-        </button>
       </header>
 
       {/* Chat messages */}
