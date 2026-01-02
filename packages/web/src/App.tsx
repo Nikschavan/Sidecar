@@ -23,7 +23,10 @@ function useRouter() {
   return route
 }
 
-function parseHash(hash: string): { screen: 'home' | 'chat'; sessionId?: string } {
+function parseHash(hash: string): { screen: 'home' | 'chat' | 'new'; sessionId?: string } {
+  if (hash === '#/new') {
+    return { screen: 'new' }
+  }
   if (hash.startsWith('#/session/')) {
     const sessionId = hash.slice('#/session/'.length)
     return { screen: 'chat', sessionId }
@@ -49,9 +52,11 @@ function App() {
     pendingPermission,
     slashCommands,
     sendMessage,
+    createSession,
     selectProject,
     selectSession,
-    respondToPermission
+    respondToPermission,
+    clearForNewSession
   } = useSessions(API_URL)
 
   // Sync URL session with state
@@ -71,8 +76,37 @@ function App() {
   }
 
   const handleNewSession = () => {
-    // TODO: Implement new session creation
-    console.log('New session requested')
+    clearForNewSession()
+    navigate('/new')
+  }
+
+  const handleCreateSession = async (text: string) => {
+    console.log('[App] handleCreateSession called with:', text.slice(0, 30))
+    const sessionId = await createSession(text)
+    console.log('[App] createSession returned:', sessionId)
+    if (sessionId) {
+      console.log('[App] Navigating to session:', sessionId)
+      navigate(`/session/${sessionId}`)
+    } else {
+      console.error('[App] No sessionId returned')
+    }
+  }
+
+  if (route.screen === 'new') {
+    return (
+      <ChatScreen
+        sessionId="new"
+        sessionName="New Session"
+        messages={messages}
+        loading={false}
+        sending={sending}
+        pendingPermission={null}
+        slashCommands={slashCommands}
+        onSend={handleCreateSession}
+        onBack={handleBack}
+        onPermissionResponse={respondToPermission}
+      />
+    )
   }
 
   if (route.screen === 'chat' && route.sessionId) {

@@ -119,6 +119,141 @@ const httpServer = createServer(async (req, res) => {
     return
   }
 
+  // Create a new Claude session for a project
+  const newSessionMatch = url.pathname.match(/^\/api\/claude\/projects\/(.+)\/new$/)
+  if (newSessionMatch && req.method === 'POST') {
+    const projectPath = decodeURIComponent(newSessionMatch[1])
+    let body = ''
+    for await (const chunk of req) {
+      body += chunk
+    }
+    const { text } = JSON.parse(body || '{}')
+    if (!text) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'text is required' }))
+      return
+    }
+
+    console.log(`[server] Creating new Claude session in ${projectPath}: ${text.slice(0, 50)}...`)
+    console.log(`[server] NEW SESSION ENDPOINT HIT - timestamp: ${Date.now()}`)
+
+    // Spawn Claude WITHOUT --resume to create a new session
+    const responses: unknown[] = []
+    let newSessionId: string | null = null
+    let responseSent = false
+
+    // Promise to wait for session ID
+    let resolveSessionId: (id: string) => void
+    let rejectSessionId: (err: Error) => void
+    const sessionIdPromise = new Promise<string>((resolve, reject) => {
+      resolveSessionId = resolve
+      rejectSessionId = reject
+    })
+
+    const claude = spawnClaude({
+      cwd: projectPath,
+      // No resume - creates new session
+      onSessionId: (id) => {
+        newSessionId = id
+        console.log(`[server] New session created: ${id}`)
+        resolveSessionId(id)
+      },
+      onMessage: (msg) => {
+        responses.push(msg)
+        // Broadcast to WebSocket clients
+        if (newSessionId) {
+          ws.broadcast({ type: 'claude_message', message: msg, sessionId: newSessionId })
+        }
+      },
+      onPermissionRequest: (permReq) => {
+        console.log(`[server] Permission request for ${permReq.toolName}`)
+
+        // Broadcast permission request
+        if (newSessionId) {
+          ws.broadcast({
+            type: 'permission_request',
+            sessionId: newSessionId,
+            requestId: permReq.requestId,
+            toolName: permReq.toolName,
+            toolUseId: permReq.toolUseId,
+            input: permReq.input,
+            permissionSuggestions: permReq.permissionSuggestions
+          })
+
+          // Store process for permission responses
+          activeProcesses.set(newSessionId, {
+            claude,
+            sessionId: newSessionId,
+            projectPath,
+            pendingPermission: permReq,
+            responses,
+            resolve: () => {}
+          })
+        }
+      }
+    })
+
+    // Send the initial message
+    claude.send(text)
+
+    // Handle cleanup when Claude finishes
+    let finished = false
+    const cleanup = () => {
+      if (!finished) {
+        finished = true
+        if (newSessionId) {
+          activeProcesses.delete(newSessionId)
+        }
+      }
+    }
+
+    claude.onMessage((msg) => {
+      if (msg.type === 'result') {
+        cleanup()
+      }
+    })
+
+    claude.onExit(() => {
+      cleanup()
+      if (!responseSent) {
+        rejectSessionId(new Error('Claude exited before providing session ID'))
+      }
+    })
+
+    // Timeout after 5 minutes
+    setTimeout(() => {
+      if (!finished) {
+        cleanup()
+        claude.child.kill()
+      }
+    }, 300000)
+
+    // Wait only for the session ID, not for completion
+    console.log(`[server] Waiting for session ID...`)
+    try {
+      const sessionId = await Promise.race([
+        sessionIdPromise,
+        new Promise<string>((_, reject) =>
+          setTimeout(() => reject(new Error('Timeout waiting for session ID')), 10000)
+        )
+      ])
+
+      console.log(`[server] Got session ID: ${sessionId}, returning response NOW`)
+      responseSent = true
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({
+        sessionId,
+        projectPath
+      }))
+    } catch (err) {
+      console.log(`[server] Error waiting for session ID: ${(err as Error).message}`)
+      responseSent = true
+      res.writeHead(500, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Failed to create session - ' + (err as Error).message }))
+    }
+    return
+  }
+
   // List Claude sessions (read directly from Claude's files)
   if (url.pathname === '/api/claude/sessions' && req.method === 'GET') {
     const sessions = listClaudeSessions(CWD)

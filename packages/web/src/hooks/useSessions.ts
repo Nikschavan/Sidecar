@@ -156,6 +156,52 @@ export function useSessions(apiUrl: string) {
     setMessages([])
   }, [])
 
+  // Create a new session with an initial message
+  const createSession = useCallback(async (text: string): Promise<string | null> => {
+    if (!currentProject || sending) return null
+
+    setSending(true)
+    setMessages([])
+
+    // Optimistically add user message
+    const tempId = 'temp-' + String(Math.random()).slice(2)
+    const tempMessage: ChatMessage = {
+      id: tempId,
+      role: 'user',
+      content: text,
+      timestamp: new Date().toISOString()
+    }
+    setMessages([tempMessage])
+
+    try {
+      const res = await fetch(
+        apiUrl + '/api/claude/projects/' + encodeURIComponent(currentProject) + '/new',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text })
+        }
+      )
+
+      if (res.ok) {
+        const data = await res.json()
+        const newSessionId = data.sessionId
+        console.log('[useSessions] Created session:', newSessionId)
+
+        // Return immediately - let the navigation handle loading the session
+        return newSessionId
+      }
+      console.error('[useSessions] Failed to create session:', res.status)
+      return null
+    } catch (e) {
+      console.error('Failed to create session:', e)
+      setMessages([])
+      return null
+    } finally {
+      setSending(false)
+    }
+  }, [apiUrl, currentProject, sending])
+
   // Fetch slash commands for a session
   const fetchSlashCommands = useCallback(async (sessionId: string) => {
     try {
@@ -305,6 +351,12 @@ export function useSessions(apiUrl: string) {
 
   // No polling needed - selectSession fetches messages directly, WebSocket handles real-time updates
 
+  // Clear messages for new session screen
+  const clearForNewSession = useCallback(() => {
+    setCurrentSessionId(null)
+    setMessages([])
+  }, [])
+
   return {
     projects,
     currentProject,
@@ -316,9 +368,11 @@ export function useSessions(apiUrl: string) {
     pendingPermission,
     slashCommands,
     sendMessage,
+    createSession,
     selectProject,
     selectSession,
     respondToPermission,
+    clearForNewSession,
     refresh: fetchMessages
   }
 }
