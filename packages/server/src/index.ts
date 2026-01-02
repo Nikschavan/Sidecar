@@ -118,7 +118,8 @@ const httpServer = createServer(async (req, res) => {
         id: s.id,
         name: s.name,
         modifiedAt: s.modifiedAt.toISOString(),
-        size: s.size
+        size: s.size,
+        model: s.model
       }))
     }))
     return

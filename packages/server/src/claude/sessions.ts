@@ -104,6 +104,35 @@ function extractSessionName(filePath: string): string | null {
 }
 
 /**
+ * Extract model from a session file (reads last assistant message)
+ */
+function extractSessionModel(filePath: string): string | null {
+  try {
+    const content = readFileSync(filePath, 'utf-8')
+    const lines = content.trim().split('\n')
+
+    // Read backwards to find the most recent assistant message with model info
+    for (let i = lines.length - 1; i >= 0; i--) {
+      try {
+        const entry = JSON.parse(lines[i])
+        if (entry.type === 'assistant' && entry.message?.model) {
+          const fullModel = entry.message.model as string
+          if (fullModel.includes('opus')) return 'opus'
+          if (fullModel.includes('sonnet')) return 'sonnet'
+          if (fullModel.includes('haiku')) return 'haiku'
+          return 'default'
+        }
+      } catch {
+        // Skip malformed lines
+      }
+    }
+  } catch {
+    // Ignore errors
+  }
+  return null
+}
+
+/**
  * List all Claude sessions for a project
  */
 export function listClaudeSessions(cwd: string): Array<{
@@ -111,6 +140,7 @@ export function listClaudeSessions(cwd: string): Array<{
   name: string | null
   modifiedAt: Date
   size: number
+  model: string | null
 }> {
   const projectDir = getProjectDir(cwd)
 
@@ -119,7 +149,7 @@ export function listClaudeSessions(cwd: string): Array<{
   }
 
   const files = readdirSync(projectDir)
-  const sessions: Array<{ id: string; name: string | null; modifiedAt: Date; size: number }> = []
+  const sessions: Array<{ id: string; name: string | null; modifiedAt: Date; size: number; model: string | null }> = []
 
   for (const file of files) {
     // Only include main session files (UUID format), not agent files
@@ -132,11 +162,14 @@ export function listClaudeSessions(cwd: string): Array<{
       // Skip empty/aborted sessions with no extractable name
       if (!name) continue
 
+      const model = extractSessionModel(filePath)
+
       sessions.push({
         id,
         name,
         modifiedAt: stats.mtime,
-        size: stats.size
+        size: stats.size,
+        model
       })
     }
   }
