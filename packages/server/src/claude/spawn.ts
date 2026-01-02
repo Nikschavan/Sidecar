@@ -37,6 +37,8 @@ export interface ClaudeProcess {
 export interface SpawnOptions {
   cwd: string
   resume?: string
+  permissionMode?: 'acceptEdits' | 'bypassPermissions' | 'default' | 'plan'
+  model?: 'sonnet' | 'opus' | 'default'
   onMessage?: (msg: ClaudeMessage) => void
   onSessionId?: (id: string) => void
   onPermissionRequest?: (req: PermissionRequest) => void
@@ -56,6 +58,16 @@ export function spawnClaude(options: SpawnOptions): ClaudeProcess {
 
   if (options.resume) {
     args.push('--resume', options.resume)
+  }
+
+  // Add permission mode if specified and not default
+  if (options.permissionMode && options.permissionMode !== 'default') {
+    args.push('--permission-mode', options.permissionMode)
+  }
+
+  // Add model if specified and not default
+  if (options.model && options.model !== 'default') {
+    args.push('--model', options.model)
   }
 
   const child = spawn('claude', args, {

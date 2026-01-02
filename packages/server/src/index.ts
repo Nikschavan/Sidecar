@@ -8,7 +8,7 @@ import { createServer } from 'node:http'
 import { WebSocketServer } from 'ws'
 import { createWSServer, type WSClient } from './ws/server.js'
 import { createSessionManager } from './session/manager.js'
-import { listClaudeSessions, readClaudeSession, getMostRecentSession, listAllProjects, findSessionProject, readSessionData, type PendingToolCall } from './claude/sessions.js'
+import { listClaudeSessions, readClaudeSession, getMostRecentSession, listAllProjects, findSessionProject, readSessionData, getSessionMetadata, type PendingToolCall } from './claude/sessions.js'
 import { spawnClaude, type ClaudeProcess, type PermissionRequest } from './claude/spawn.js'
 import type { ClientMessage } from '@sidecar/shared'
 
@@ -127,7 +127,7 @@ const httpServer = createServer(async (req, res) => {
     for await (const chunk of req) {
       body += chunk
     }
-    const { text } = JSON.parse(body || '{}')
+    const { text, permissionMode, model } = JSON.parse(body || '{}')
     if (!text) {
       res.writeHead(400, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ error: 'text is required' }))
@@ -136,6 +136,7 @@ const httpServer = createServer(async (req, res) => {
 
     console.log(`[server] Creating new Claude session in ${projectPath}: ${text.slice(0, 50)}...`)
     console.log(`[server] NEW SESSION ENDPOINT HIT - timestamp: ${Date.now()}`)
+    console.log(`[server] Settings: permissionMode=${permissionMode || 'default'}, model=${model || 'default'}`)
 
     // Spawn Claude WITHOUT --resume to create a new session
     const responses: unknown[] = []
@@ -152,6 +153,8 @@ const httpServer = createServer(async (req, res) => {
 
     const claude = spawnClaude({
       cwd: projectPath,
+      permissionMode,
+      model,
       // No resume - creates new session
       onSessionId: (id) => {
         newSessionId = id
@@ -289,6 +292,22 @@ const httpServer = createServer(async (req, res) => {
     return
   }
 
+  // Get session metadata (model, etc.)
+  const metadataMatch = url.pathname.match(/^\/api\/claude\/sessions\/([^/]+)\/metadata$/)
+  if (metadataMatch && req.method === 'GET') {
+    const sessionId = metadataMatch[1]
+    const projectPath = findSessionProject(sessionId)
+    if (!projectPath) {
+      res.writeHead(404, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Session not found' }))
+      return
+    }
+    const metadata = getSessionMetadata(projectPath, sessionId)
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ sessionId, ...metadata }))
+    return
+  }
+
   // Get available slash commands for a session
   const slashCommandsMatch = url.pathname.match(/^\/api\/claude\/sessions\/([^/]+)\/commands$/)
   if (slashCommandsMatch && req.method === 'GET') {
@@ -339,7 +358,7 @@ const httpServer = createServer(async (req, res) => {
     for await (const chunk of req) {
       body += chunk
     }
-    const { text } = JSON.parse(body || '{}')
+    const { text, permissionMode, model } = JSON.parse(body || '{}')
     if (!text) {
       res.writeHead(400, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ error: 'text is required' }))
@@ -355,6 +374,7 @@ const httpServer = createServer(async (req, res) => {
     }
 
     console.log(`[server] Sending to Claude session ${sessionId} in ${projectPath}: ${text.slice(0, 50)}...`)
+    console.log(`[server] Settings: permissionMode=${permissionMode || 'default'}, model=${model || 'default'}`)
 
     // Spawn Claude with --resume to continue the session
     const responses: unknown[] = []
@@ -363,6 +383,8 @@ const httpServer = createServer(async (req, res) => {
     const claude = spawnClaude({
       cwd: projectPath,
       resume: sessionId,
+      permissionMode,
+      model,
       onMessage: (msg) => {
         responses.push(msg)
         // Broadcast to WebSocket clients (phones)

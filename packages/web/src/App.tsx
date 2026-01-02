@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useSessions } from './hooks/useSessions'
 import { HomeScreen } from './screens/HomeScreen'
 import { ChatScreen } from './screens/ChatScreen'
+import type { SessionSettings } from './components/InputBar'
 
 // Get API URL from current location or default to localhost
 const API_URL = window.location.hostname === 'localhost'
@@ -38,8 +39,51 @@ function navigate(path: string) {
   window.location.hash = path
 }
 
+const DEFAULT_SETTINGS: SessionSettings = {
+  permissionMode: 'default',
+  model: 'default'
+}
+
+const SETTINGS_STORAGE_KEY = 'sidecar-permission-mode'
+
+function loadSettings(): SessionSettings {
+  try {
+    const stored = localStorage.getItem(SETTINGS_STORAGE_KEY)
+    if (stored) {
+      // Only load permissionMode from storage, model comes from session
+      return { ...DEFAULT_SETTINGS, permissionMode: stored as SessionSettings['permissionMode'] }
+    }
+  } catch (e) {
+    console.error('Failed to load settings:', e)
+  }
+  return DEFAULT_SETTINGS
+}
+
+function savePermissionMode(mode: SessionSettings['permissionMode']) {
+  try {
+    localStorage.setItem(SETTINGS_STORAGE_KEY, mode)
+  } catch (e) {
+    console.error('Failed to save permission mode:', e)
+  }
+}
+
 function App() {
   const route = useRouter()
+  const [settings, setSettings] = useState<SessionSettings>(loadSettings)
+
+  // Handle settings change - persist only permissionMode
+  const handleSettingsChange = (newSettings: SessionSettings) => {
+    setSettings(newSettings)
+    // Only persist permissionMode to localStorage
+    if (newSettings.permissionMode !== settings.permissionMode) {
+      savePermissionMode(newSettings.permissionMode)
+    }
+  }
+
+  // Handle model change from session metadata
+  const handleModelChange = (model: 'default' | 'sonnet' | 'opus') => {
+    setSettings(prev => ({ ...prev, model }))
+  }
 
   const {
     projects,
@@ -57,7 +101,7 @@ function App() {
     selectSession,
     respondToPermission,
     clearForNewSession
-  } = useSessions(API_URL)
+  } = useSessions(API_URL, settings, handleModelChange)
 
   // Sync URL session with state
   useEffect(() => {
@@ -102,9 +146,11 @@ function App() {
         sending={sending}
         pendingPermission={null}
         slashCommands={slashCommands}
+        settings={settings}
         onSend={handleCreateSession}
         onBack={handleBack}
         onPermissionResponse={respondToPermission}
+        onSettingsChange={handleSettingsChange}
       />
     )
   }
@@ -120,9 +166,11 @@ function App() {
         sending={sending}
         pendingPermission={pendingPermission}
         slashCommands={slashCommands}
+        settings={settings}
         onSend={sendMessage}
         onBack={handleBack}
         onPermissionResponse={respondToPermission}
+        onSettingsChange={handleSettingsChange}
       />
     )
   }

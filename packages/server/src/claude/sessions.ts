@@ -193,6 +193,45 @@ export function findSessionProject(sessionId: string): string | null {
   return null
 }
 
+/**
+ * Get session metadata including the model used
+ * Reads the last assistant message to get the current model
+ */
+export function getSessionMetadata(cwd: string, sessionId: string): { model: string | null } {
+  const projectDir = getProjectDir(cwd)
+  const sessionFile = join(projectDir, `${sessionId}.jsonl`)
+
+  if (!existsSync(sessionFile)) {
+    return { model: null }
+  }
+
+  try {
+    const content = readFileSync(sessionFile, 'utf-8')
+    const lines = content.trim().split('\n')
+
+    // Read backwards to find the most recent assistant message with model info
+    for (let i = lines.length - 1; i >= 0; i--) {
+      try {
+        const entry = JSON.parse(lines[i])
+        if (entry.type === 'assistant' && entry.message?.model) {
+          // Extract model alias from full model name
+          // e.g., "claude-opus-4-5-20251101" -> "opus"
+          const fullModel = entry.message.model as string
+          if (fullModel.includes('opus')) return { model: 'opus' }
+          if (fullModel.includes('sonnet')) return { model: 'sonnet' }
+          return { model: 'default' }
+        }
+      } catch {
+        // Skip malformed lines
+      }
+    }
+  } catch {
+    // Ignore read errors
+  }
+
+  return { model: null }
+}
+
 interface ContentBlock {
   type: string
   text?: string

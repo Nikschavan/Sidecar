@@ -5,6 +5,14 @@ export interface SlashCommand {
   description: string
 }
 
+export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'
+export type Model = 'default' | 'sonnet' | 'opus'
+
+export interface SessionSettings {
+  permissionMode: PermissionMode
+  model: Model
+}
+
 interface InputBarProps {
   onSend: (text: string) => void
   onAbort?: () => void
@@ -12,10 +20,9 @@ interface InputBarProps {
   placeholder?: string
   isProcessing?: boolean
   slashCommands?: SlashCommand[]
+  settings?: SessionSettings
+  onSettingsChange?: (settings: SessionSettings) => void
 }
-
-type PermissionMode = 'default' | 'accept-edits' | 'plan' | 'yolo'
-type Model = 'default' | 'sonnet' | 'opus'
 
 // Default slash commands (fallback if not provided)
 const DEFAULT_SLASH_COMMANDS: SlashCommand[] = [
@@ -33,23 +40,57 @@ const DEFAULT_SLASH_COMMANDS: SlashCommand[] = [
   { command: '/vim', description: 'Toggle vim mode' },
 ]
 
+const DEFAULT_SETTINGS: SessionSettings = {
+  permissionMode: 'default',
+  model: 'default'
+}
+
+type SettingsPanel = 'none' | 'permission' | 'model'
+
 export function InputBar({
   onSend,
   onAbort,
   disabled,
   placeholder = 'Type a message...',
   isProcessing = false,
-  slashCommands = DEFAULT_SLASH_COMMANDS
+  slashCommands = DEFAULT_SLASH_COMMANDS,
+  settings = DEFAULT_SETTINGS,
+  onSettingsChange
 }: InputBarProps) {
   const [text, setText] = useState('')
-  const [showSettings, setShowSettings] = useState(false)
+  const [activePanel, setActivePanel] = useState<SettingsPanel>('none')
   const [showSlashCommands, setShowSlashCommands] = useState(false)
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0)
-  const [permissionMode, setPermissionMode] = useState<PermissionMode>('default')
-  const [model, setModel] = useState<Model>('default')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const settingsRef = useRef<HTMLDivElement>(null)
-  const settingsButtonRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const badgesRef = useRef<HTMLDivElement>(null)
+
+  const handlePermissionModeChange = (mode: PermissionMode) => {
+    onSettingsChange?.({ ...settings, permissionMode: mode })
+    setActivePanel('none')
+  }
+
+  const handleModelChange = (model: Model) => {
+    onSettingsChange?.({ ...settings, model })
+    setActivePanel('none')
+  }
+
+  const getPermissionLabel = (mode: PermissionMode) => {
+    switch (mode) {
+      case 'acceptEdits': return 'Accept Edits'
+      case 'plan': return 'Plan Mode'
+      case 'bypassPermissions': return 'Yolo'
+      default: return 'Default'
+    }
+  }
+
+  const getModelLabel = (model: Model) => {
+    switch (model) {
+      case 'sonnet': return 'Sonnet'
+      case 'opus': return 'Opus'
+      default: return 'Default'
+    }
+  }
 
   // Filter commands based on input
   const filteredCommands = text.startsWith('/')
@@ -77,24 +118,24 @@ export function InputBar({
     }
   }, [text])
 
-  // Close settings when clicking outside (but not on the settings button)
+  // Close panel when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as Node
       if (
-        settingsRef.current &&
-        !settingsRef.current.contains(target) &&
-        settingsButtonRef.current &&
-        !settingsButtonRef.current.contains(target)
+        panelRef.current &&
+        !panelRef.current.contains(target) &&
+        badgesRef.current &&
+        !badgesRef.current.contains(target)
       ) {
-        setShowSettings(false)
+        setActivePanel('none')
       }
     }
-    if (showSettings) {
+    if (activePanel !== 'none') {
       document.addEventListener('mousedown', handleClickOutside)
       return () => document.removeEventListener('mousedown', handleClickOutside)
     }
-  }, [showSettings])
+  }, [activePanel])
 
   const handleSubmit = () => {
     const trimmed = text.trim()
@@ -166,74 +207,112 @@ export function InputBar({
         </div>
       )}
 
-      {/* Settings dialog */}
-      {showSettings && (
+      {/* Permission Mode Panel */}
+      {activePanel === 'permission' && (
         <div
-          ref={settingsRef}
+          ref={panelRef}
           className="max-w-3xl mx-auto mb-3 bg-claude-bg-light border border-claude-border rounded-xl overflow-hidden"
         >
-          {/* Permission Mode */}
           <div className="p-4">
             <div className="text-sm text-claude-text-muted mb-3">Permission Mode</div>
             <div className="space-y-2">
               {[
-                { value: 'default', label: 'Default' },
-                { value: 'accept-edits', label: 'Accept Edits' },
-                { value: 'plan', label: 'Plan Mode' },
-                { value: 'yolo', label: 'Yolo' },
+                { value: 'default', label: 'Default', description: 'Ask for permission on each action' },
+                { value: 'acceptEdits', label: 'Accept Edits', description: 'Auto-accept file edits' },
+                { value: 'plan', label: 'Plan Mode', description: 'Review and approve plans first' },
+                { value: 'bypassPermissions', label: 'Yolo', description: 'Skip all permission checks' },
               ].map((option) => (
                 <button
                   key={option.value}
-                  onClick={() => setPermissionMode(option.value as PermissionMode)}
+                  onClick={() => handlePermissionModeChange(option.value as PermissionMode)}
                   className="flex items-center gap-3 w-full text-left py-2 hover:bg-claude-bg-lighter rounded-lg px-2 -mx-2 transition-colors"
                 >
                   <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                    permissionMode === option.value
+                    settings.permissionMode === option.value
                       ? 'border-claude-text'
                       : 'border-claude-text-muted'
                   }`}>
-                    {permissionMode === option.value && (
+                    {settings.permissionMode === option.value && (
                       <span className="w-2.5 h-2.5 rounded-full bg-claude-text" />
                     )}
                   </span>
-                  <span className="text-claude-text">{option.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="border-t border-claude-border" />
-
-          {/* Model */}
-          <div className="p-4">
-            <div className="text-sm text-claude-text-muted mb-3">Model</div>
-            <div className="space-y-2">
-              {[
-                { value: 'default', label: 'Default' },
-                { value: 'sonnet', label: 'Sonnet' },
-                { value: 'opus', label: 'Opus' },
-              ].map((option) => (
-                <button
-                  key={option.value}
-                  onClick={() => setModel(option.value as Model)}
-                  className="flex items-center gap-3 w-full text-left py-2 hover:bg-claude-bg-lighter rounded-lg px-2 -mx-2 transition-colors"
-                >
-                  <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                    model === option.value
-                      ? 'border-claude-text'
-                      : 'border-claude-text-muted'
-                  }`}>
-                    {model === option.value && (
-                      <span className="w-2.5 h-2.5 rounded-full bg-claude-text" />
-                    )}
-                  </span>
-                  <span className="text-claude-text">{option.label}</span>
+                  <div className="flex-1">
+                    <span className="text-claude-text">{option.label}</span>
+                    <span className="text-claude-text-muted text-xs ml-2">{option.description}</span>
+                  </div>
                 </button>
               ))}
             </div>
           </div>
         </div>
       )}
+
+      {/* Model Panel */}
+      {activePanel === 'model' && (
+        <div
+          ref={panelRef}
+          className="max-w-3xl mx-auto mb-3 bg-claude-bg-light border border-claude-border rounded-xl overflow-hidden"
+        >
+          <div className="p-4">
+            <div className="text-sm text-claude-text-muted mb-3">Model</div>
+            <div className="space-y-2">
+              {[
+                { value: 'default', label: 'Default', description: 'Use configured default' },
+                { value: 'sonnet', label: 'Sonnet', description: 'Fast and capable' },
+                { value: 'opus', label: 'Opus', description: 'Most capable' },
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  onClick={() => handleModelChange(option.value as Model)}
+                  className="flex items-center gap-3 w-full text-left py-2 hover:bg-claude-bg-lighter rounded-lg px-2 -mx-2 transition-colors"
+                >
+                  <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                    settings.model === option.value
+                      ? 'border-claude-text'
+                      : 'border-claude-text-muted'
+                  }`}>
+                    {settings.model === option.value && (
+                      <span className="w-2.5 h-2.5 rounded-full bg-claude-text" />
+                    )}
+                  </span>
+                  <div className="flex-1">
+                    <span className="text-claude-text">{option.label}</span>
+                    <span className="text-claude-text-muted text-xs ml-2">{option.description}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clickable settings badges */}
+      <div ref={badgesRef} className="max-w-3xl mx-auto mb-2 flex items-center gap-2 px-1">
+        <button
+          onClick={() => setActivePanel(activePanel === 'permission' ? 'none' : 'permission')}
+          className={`text-xs px-2 py-1 rounded-full transition-colors ${
+            activePanel === 'permission'
+              ? 'bg-blue-600 text-white'
+              : settings.permissionMode !== 'default'
+                ? 'bg-claude-surface text-claude-text hover:bg-claude-bg-lighter'
+                : 'bg-claude-bg-light text-claude-text-muted hover:bg-claude-surface'
+          }`}
+        >
+          Permission: {getPermissionLabel(settings.permissionMode)}
+        </button>
+        <button
+          onClick={() => setActivePanel(activePanel === 'model' ? 'none' : 'model')}
+          className={`text-xs px-2 py-1 rounded-full transition-colors ${
+            activePanel === 'model'
+              ? 'bg-blue-600 text-white'
+              : settings.model !== 'default'
+                ? 'bg-claude-surface text-claude-text hover:bg-claude-bg-lighter'
+                : 'bg-claude-bg-light text-claude-text-muted hover:bg-claude-surface'
+          }`}
+        >
+          Model: {getModelLabel(settings.model)}
+        </button>
+      </div>
 
       {/* Input area */}
       <div className="max-w-3xl mx-auto">
@@ -252,22 +331,6 @@ export function InputBar({
           {/* Toolbar */}
           <div className="flex items-center justify-between mt-2">
             <div className="flex items-center gap-1">
-              {/* Settings button */}
-              <button
-                ref={settingsButtonRef}
-                onClick={() => setShowSettings(!showSettings)}
-                className={`w-9 h-9 flex items-center justify-center rounded-full transition-colors ${
-                  showSettings
-                    ? 'bg-blue-600 text-white'
-                    : 'hover:bg-claude-bg-lighter text-claude-text-muted hover:text-claude-text'
-                }`}
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-              </button>
-
               {/* Abort button - only show when processing */}
               {isProcessing && onAbort && (
                 <button

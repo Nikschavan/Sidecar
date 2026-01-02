@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { ChatMessage } from '@sidecar/shared'
+import type { SessionSettings } from '../components/InputBar'
 
 interface Project {
   path: string
@@ -49,7 +50,7 @@ export interface SlashCommand {
   description: string
 }
 
-export function useSessions(apiUrl: string) {
+export function useSessions(apiUrl: string, settings?: SessionSettings, onModelChange?: (model: 'default' | 'sonnet' | 'opus') => void) {
   const [projects, setProjects] = useState<Project[]>([])
   const [currentProject, setCurrentProject] = useState<string | null>(null)
   const [sessions, setSessions] = useState<Session[]>([])
@@ -131,7 +132,11 @@ export function useSessions(apiUrl: string) {
       const res = await fetch(apiUrl + '/api/claude/sessions/' + currentSessionId + '/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text })
+        body: JSON.stringify({
+          text,
+          permissionMode: settings?.permissionMode !== 'default' ? settings?.permissionMode : undefined,
+          model: settings?.model !== 'default' ? settings?.model : undefined
+        })
       })
 
       if (res.ok) {
@@ -146,7 +151,7 @@ export function useSessions(apiUrl: string) {
     } finally {
       setSending(false)
     }
-  }, [apiUrl, currentSessionId, sending, fetchMessages])
+  }, [apiUrl, currentSessionId, sending, fetchMessages, settings])
 
   // Select a project
   const selectProject = useCallback((projectPath: string) => {
@@ -179,7 +184,11 @@ export function useSessions(apiUrl: string) {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text })
+          body: JSON.stringify({
+            text,
+            permissionMode: settings?.permissionMode !== 'default' ? settings?.permissionMode : undefined,
+            model: settings?.model !== 'default' ? settings?.model : undefined
+          })
         }
       )
 
@@ -200,7 +209,7 @@ export function useSessions(apiUrl: string) {
     } finally {
       setSending(false)
     }
-  }, [apiUrl, currentProject, sending])
+  }, [apiUrl, currentProject, sending, settings])
 
   // Fetch slash commands for a session
   const fetchSlashCommands = useCallback(async (sessionId: string) => {
@@ -212,6 +221,19 @@ export function useSessions(apiUrl: string) {
       console.error('Failed to fetch slash commands:', e)
     }
   }, [apiUrl])
+
+  // Fetch session metadata (model, etc.)
+  const fetchSessionMetadata = useCallback(async (sessionId: string) => {
+    try {
+      const res = await fetch(`${apiUrl}/api/claude/sessions/${sessionId}/metadata`)
+      const data = await res.json()
+      if (data.model && onModelChange) {
+        onModelChange(data.model)
+      }
+    } catch (e) {
+      console.error('Failed to fetch session metadata:', e)
+    }
+  }, [apiUrl, onModelChange])
 
   // Select a session
   const selectSession = useCallback(async (sessionId: string) => {
@@ -231,15 +253,16 @@ export function useSessions(apiUrl: string) {
       setLoading(false)
     }
 
-    // Fetch slash commands for this session
+    // Fetch slash commands and metadata for this session
     fetchSlashCommands(sessionId)
+    fetchSessionMetadata(sessionId)
 
     // Tell server to watch this session for file-based permissions
     const ws = wsRef.current
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'watch_session', sessionId }))
     }
-  }, [apiUrl, fetchSlashCommands])
+  }, [apiUrl, fetchSlashCommands, fetchSessionMetadata])
 
   // Send permission response via WebSocket
   const respondToPermission = useCallback(async (allow: boolean, options?: { answers?: Record<string, string[]>; allowAll?: boolean }) => {
