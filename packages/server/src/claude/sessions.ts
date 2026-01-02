@@ -158,9 +158,45 @@ export function getMostRecentSession(cwd: string): string | null {
 /**
  * Decode a Claude directory name back to project path
  * -Users-foo-project -> /Users/foo/project
+ *
+ * Note: This simple decode may not work for folders with hyphens in their names.
+ * Use getProjectCwdFromSession() for accurate paths.
  */
 export function decodeProjectPath(encoded: string): string {
   return encoded.replace(/^-/, '/').replace(/-/g, '/')
+}
+
+/**
+ * Get the actual cwd from a session file in the project directory.
+ * This is more reliable than decoding the path since session files
+ * contain the real cwd that was used.
+ */
+export function getProjectCwdFromSession(projectDir: string): string | null {
+  try {
+    const files = readdirSync(projectDir)
+    // Find a session file (not agent files)
+    const sessionFile = files.find(f => f.endsWith('.jsonl') && !f.startsWith('agent-'))
+    if (!sessionFile) return null
+
+    const filePath = join(projectDir, sessionFile)
+    const content = readFileSync(filePath, 'utf-8')
+    const lines = content.trim().split('\n')
+
+    // Look for a line with a cwd field
+    for (const line of lines) {
+      try {
+        const entry = JSON.parse(line)
+        if (entry.cwd && typeof entry.cwd === 'string') {
+          return entry.cwd
+        }
+      } catch {
+        // Skip malformed lines
+      }
+    }
+  } catch {
+    // Ignore errors
+  }
+  return null
 }
 
 /**
@@ -184,11 +220,13 @@ export function listAllProjects(): Array<{
     try {
       const stats = statSync(dirPath)
       if (stats.isDirectory()) {
-        const decodedPath = decodeProjectPath(dir)
+        // Try to get the actual cwd from a session file (more reliable)
+        // Fall back to simple decode if no session files exist
+        const actualPath = getProjectCwdFromSession(dirPath) || decodeProjectPath(dir)
         projects.push({
-          path: decodedPath,
+          path: actualPath,
           encodedPath: dir,
-          name: decodedPath.split('/').pop() || decodedPath,
+          name: actualPath.split('/').pop() || actualPath,
           modifiedAt: stats.mtime
         })
       }

@@ -1,3 +1,5 @@
+import { ProjectDropdown } from '../components/ProjectDropdown'
+
 interface Project {
   path: string
   name: string
@@ -51,18 +53,11 @@ export function HomeScreen({
 
       {/* Project dropdown */}
       <div className="px-4 pb-4">
-        <select
-          value={currentProject || ''}
-          onChange={(e) => onProjectChange(e.target.value)}
-          className="w-full bg-claude-bg-light text-sm rounded-lg px-4 py-3 text-claude-text border border-claude-border focus:outline-none focus:border-claude-accent"
-        >
-          <option value="" disabled>Select a project...</option>
-          {(projects || []).map((p) => (
-            <option key={p.path} value={p.path}>
-              {p.name}
-            </option>
-          ))}
-        </select>
+        <ProjectDropdown
+          projects={projects}
+          currentProject={currentProject}
+          onProjectChange={onProjectChange}
+        />
       </div>
 
       {/* Sessions list */}
