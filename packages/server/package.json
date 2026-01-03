@@ -16,7 +16,9 @@
     "server:watch": "bash scripts/watch-server.sh"
   },
   "dependencies": {
+    "@hono/node-server": "^1.19.7",
     "@sidecar/shared": "workspace:*",
+    "hono": "^4.11.3",
     "ws": "^8.18.0"
   },
   "devDependencies": {
