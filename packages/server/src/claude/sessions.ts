@@ -72,6 +72,33 @@ function cleanUserMessage(text: string): string {
 }
 
 /**
+ * Check if a session file has actual messages (user or assistant)
+ * Returns false for sessions with only metadata (summary, queue-operation, etc.)
+ */
+function hasActualMessages(filePath: string): boolean {
+  try {
+    const content = readFileSync(filePath, 'utf-8')
+    const lines = content.trim().split('\n')
+
+    for (const line of lines) {
+      if (!line) continue
+      try {
+        const entry = JSON.parse(line)
+        // Check for actual user or assistant messages with content
+        if ((entry.type === 'user' || entry.type === 'assistant') && entry.message) {
+          return true
+        }
+      } catch {
+        // Skip malformed lines
+      }
+    }
+    return false
+  } catch {
+    return false
+  }
+}
+
+/**
  * Extract session name from a session file
  */
 function extractSessionName(filePath: string): string | null {
@@ -186,6 +213,9 @@ export function listClaudeSessions(cwd: string): Array<{
 
       // Skip empty/aborted sessions with no extractable name
       if (!name) continue
+
+      // Skip sessions that have no actual messages (only metadata like summary)
+      if (!hasActualMessages(filePath)) continue
 
       const model = extractSessionModel(filePath)
 
