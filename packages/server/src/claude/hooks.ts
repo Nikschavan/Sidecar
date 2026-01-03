@@ -39,7 +39,8 @@ export function setupClaudeHooks(sidecarPort: number): void {
 
   // Path to the hook script (relative to the built dist folder)
   // __dirname is dist/claude/, so go up one level to dist/, then into hooks/
-  const hookScriptPath = join(__dirname, '..', 'hooks', 'sidecar-hook.js')
+  // Uses .cjs extension to force CommonJS mode since package.json has "type": "module"
+  const hookScriptPath = join(__dirname, '..', 'hooks', 'sidecar-hook.cjs')
 
   // Ensure .claude directory exists
   if (!existsSync(claudeDir)) {

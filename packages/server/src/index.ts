@@ -44,11 +44,14 @@ const clientWatchingSession = new Map<string, string>() // clientId -> sessionId
 const sessionWatchers = new Map<string, Set<string>>() // sessionId -> Set<clientId>
 
 // Track pending hook-based permissions for re-sending on page reload
-// Maps sessionId -> hook notification data (message only, no tool details)
+// Maps sessionId -> hook notification data with tool details
 interface PendingHookPermission {
   sessionId: string
   message: string
   timestamp: number
+  toolName: string
+  toolUseId: string
+  toolInput: Record<string, unknown>
 }
 const pendingHookPermissions = new Map<string, PendingHookPermission>()
 
@@ -695,28 +698,60 @@ const httpServer = createServer(async (req, res) => {
     }
     try {
       const hookData = JSON.parse(body || '{}')
-      const { session_id, notification_type, message } = hookData
+      const { session_id, notification_type, message, transcript_path, cwd } = hookData
       console.log(`[server] Hook notification: ${notification_type} for session ${session_id}`)
 
       if (notification_type === 'permission_prompt') {
         const hookId = `hook-${session_id}`
 
+        // Try to get detailed tool info from the session file
+        let toolName = 'Permission Required'
+        let toolInput: Record<string, unknown> = { message }
+        let toolUseId = hookId
+
+        if (cwd && session_id) {
+          try {
+            // Read session data to get the actual pending tool call
+            const sessionData = readSessionData(cwd, session_id)
+            if (sessionData.pendingToolCalls.length > 0) {
+              // Get the most recent pending tool (likely the one needing permission)
+              const pendingTool = sessionData.pendingToolCalls[sessionData.pendingToolCalls.length - 1]
+              toolName = pendingTool.name
+              toolInput = pendingTool.input as Record<string, unknown>
+              toolUseId = pendingTool.id
+              console.log(`[server] Found pending tool: ${toolName} (${toolUseId})`)
+            }
+          } catch (err) {
+            console.log(`[server] Could not read session data: ${(err as Error).message}`)
+            // Fall back to hook message
+          }
+        }
+
         // Track the permission for re-sending on page reload
         pendingHookPermissions.set(session_id, {
           sessionId: session_id,
           message,
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          toolName,
+          toolUseId,
+          toolInput
         })
+
+        // Log watchers for debugging
+        const watchers = sessionWatchers.get(session_id)
+        console.log(`[server] Broadcasting permission_request to session ${session_id}`)
+        console.log(`[server] Session has ${watchers?.size || 0} watchers`)
+        console.log(`[server] All watched sessions: ${[...watchedSessions.keys()].join(', ')}`)
 
         // Broadcast to web clients watching this session
         ws.broadcast({
           type: 'permission_request',
           sessionId: session_id,
-          toolName: 'Permission Required', // Hook doesn't provide detailed tool info
-          toolUseId: hookId,
-          requestId: hookId,
-          input: { message },
-          source: 'hook'  // Indicate this came from hook, not file detection
+          toolName,
+          toolUseId,
+          requestId: toolUseId,
+          input: toolInput,
+          source: 'hook'
         })
       }
 
@@ -917,15 +952,14 @@ const ws = createWSServer(wss, {
           // Only re-send if permission is recent (within last 5 minutes)
           const ageMs = Date.now() - pendingHook.timestamp
           if (ageMs < 300000) {
-            const hookId = `hook-${sessionId}`
-            console.log(`[server] Re-sending pending hook permission for session ${sessionId}`)
+            console.log(`[server] Re-sending pending hook permission for session ${sessionId}: ${pendingHook.toolName}`)
             client.send({
               type: 'permission_request',
               sessionId,
-              toolName: 'Permission Required',
-              toolUseId: hookId,
-              requestId: hookId,
-              input: { message: pendingHook.message },
+              toolName: pendingHook.toolName,
+              toolUseId: pendingHook.toolUseId,
+              requestId: pendingHook.toolUseId,
+              input: pendingHook.toolInput,
               source: 'hook'
             })
           } else {
@@ -1081,14 +1115,16 @@ setInterval(() => {
     // If there were pending tools and now there are fewer, permission may have been resolved
     if (previousPendingCount > 0 && currentPendingIds.size < previousPendingCount) {
       // Check if we have a pending hook permission for this session
-      if (pendingHookPermissions.has(sessionId)) {
+      const pendingHook = pendingHookPermissions.get(sessionId)
+      if (pendingHook) {
         console.log(`[server] Permission resolved in terminal for session ${sessionId}`)
+        const resolvedToolId = pendingHook.toolUseId
         pendingHookPermissions.delete(sessionId)
         // Broadcast to web clients to clear the modal
         ws.broadcast({
           type: 'permission_resolved',
           sessionId,
-          toolId: `hook-${sessionId}`
+          toolId: resolvedToolId
         })
       }
     }
