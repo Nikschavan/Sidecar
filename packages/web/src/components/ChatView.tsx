@@ -162,7 +162,7 @@ export function ChatView({ messages, loading, sending }: ChatViewProps) {
 
     // Only auto-scroll if user hasn't scrolled up
     if (!userScrolledUp.current) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+      bottomRef.current?.scrollIntoView({ behavior: 'auto' })
     }
   }, [messages])
 
