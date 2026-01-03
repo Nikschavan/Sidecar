@@ -7,6 +7,7 @@
 import { WebSocketServer, WebSocket } from 'ws'
 import type { IncomingMessage } from 'node:http'
 import type { ServerMessage, ClientMessage } from '@sidecar/shared'
+import { validateToken } from '../auth/token.js'
 
 export interface WSServerOptions {
   onConnection: (client: WSClient) => void
@@ -24,6 +25,17 @@ let clientIdCounter = 0
 
 export function createWSServer(wss: WebSocketServer, options: WSServerOptions) {
   wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
+    // Extract token from query params
+    const url = new URL(req.url || '/', `http://localhost`)
+    const token = url.searchParams.get('token')
+
+    // Validate token
+    if (!token || !validateToken(token)) {
+      console.log(`[ws] Connection rejected: invalid or missing token`)
+      ws.close(4001, 'Unauthorized: invalid or missing token')
+      return
+    }
+
     const clientId = `client-${++clientIdCounter}`
 
     const client: WSClient = {

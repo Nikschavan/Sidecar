@@ -12,6 +12,7 @@ import { createWSServer } from './ws/server.js'
 import { claudeService } from './services/claude.service.js'
 import { sessionsService } from './services/sessions.service.js'
 import { setupClaudeHooks, removeClaudeHooks } from './claude/hooks.js'
+import { loadOrCreateToken, rotateToken, getAuthFilePath } from './auth/token.js'
 import {
   handleSubscribe,
   handleSend,
@@ -24,6 +25,19 @@ import type { ClientMessage, ServerMessage } from '@sidecar/shared'
 
 const PORT = parseInt(process.env.PORT || '3456', 10)
 const CWD = process.cwd()
+
+// Parse CLI args
+const args = process.argv.slice(2)
+const shouldRotateToken = args.includes('--rotate-token')
+
+// Handle token rotation if requested
+if (shouldRotateToken) {
+  const newToken = rotateToken()
+  console.log(`[auth] Token rotated. New token: ${newToken}`)
+}
+
+// Load or create auth token
+const AUTH_TOKEN = loadOrCreateToken()
 
 // Create HTTP server that delegates to Hono
 const httpServer = createServer(async (req, res) => {
@@ -155,8 +169,8 @@ setInterval(() => {
 
 // Start the server
 httpServer.listen(PORT, () => {
-  // Configure Claude Code notification hooks
-  setupClaudeHooks(PORT)
+  // Configure Claude Code notification hooks (pass token for auth)
+  setupClaudeHooks(PORT, AUTH_TOKEN)
 
   console.log(`
 ┌─────────────────────────────────────────┐
@@ -167,22 +181,21 @@ httpServer.listen(PORT, () => {
 │  CWD:   ${CWD.slice(0, 30)}...
 └─────────────────────────────────────────┘
 
-API Endpoints:
-  GET  /api/claude/sessions       List Claude sessions (from ~/.claude)
-  GET  /api/claude/sessions/:id   Get Claude session messages
-  GET  /api/claude/current        Get most recent Claude session
-  POST /api/claude/sessions/:id/send  Send message to session (resumes it)
-  POST /api/claude/send           Send message to most recent session
+Authentication:
+  Token: ${AUTH_TOKEN}
+  File:  ${getAuthFilePath()}
 
+  Use --rotate-token to generate a new token
+
+API Endpoints (require Authorization: Bearer <token>):
+  GET  /api/claude/sessions       List Claude sessions
+  GET  /api/claude/sessions/:id   Get session messages
+  POST /api/claude/sessions/:id/send  Send message to session
   GET  /api/sessions              List Sidecar sessions
   POST /api/sessions              Create session
-  GET  /api/sessions/:id          Get session
-  GET  /api/sessions/:id/messages Get messages
-  POST /api/sessions/:id/messages Send message
 
-WebSocket:
-  { type: 'subscribe', sessionId: '...' }
-  { type: 'send', text: '...' }
+WebSocket (requires ?token=<token>):
+  ws://localhost:${PORT}?token=<token>
 `)
 })
 

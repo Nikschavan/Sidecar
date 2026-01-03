@@ -3,6 +3,7 @@ import { useSessions } from './hooks/useSessions'
 import { HomeScreen } from './screens/HomeScreen'
 import { ChatScreen } from './screens/ChatScreen'
 import { NewSessionScreen } from './screens/NewSessionScreen'
+import { AuthGate } from './components/AuthGate'
 import type { SessionSettings } from './components/InputBar'
 import type { ImageBlock } from '@sidecar/shared'
 
@@ -69,7 +70,7 @@ function savePermissionMode(mode: SessionSettings['permissionMode']) {
   }
 }
 
-function App() {
+function AppContent() {
   const route = useRouter()
   const [settings, setSettings] = useState<SessionSettings>(loadSettings)
 
@@ -187,6 +188,14 @@ function App() {
       onSelectSession={handleSelectSession}
       onNewSession={handleNewSession}
     />
+  )
+}
+
+function App() {
+  return (
+    <AuthGate apiUrl={API_URL}>
+      <AppContent />
+    </AuthGate>
   )
 }
 

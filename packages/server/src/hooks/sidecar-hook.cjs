@@ -12,6 +12,7 @@ const http = require('http')
 
 const port = process.env.SIDECAR_PORT || 7865
 const host = process.env.SIDECAR_HOST || 'localhost'
+const token = process.env.SIDECAR_TOKEN || ''
 
 // Read stdin immediately (don't wait for connection check)
 let data = ''
@@ -29,15 +30,22 @@ process.stdin.on('end', () => {
     const hookData = JSON.parse(data)
     const postData = JSON.stringify(hookData)
 
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(postData)
+    }
+
+    // Add auth header if token is provided
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
+    }
+
     const options = {
       hostname: host,
       port: port,
       path: '/api/claude-hook',
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(postData)
-      },
+      headers,
       // Short timeout - localhost should respond quickly
       timeout: 500
     }

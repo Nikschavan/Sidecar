@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
     "test": "tsx src/test.ts",
+    "test:auth": "node --import tsx --test src/auth/token.test.ts",
     "server:watch": "bash scripts/watch-server.sh"
   },
   "dependencies": {

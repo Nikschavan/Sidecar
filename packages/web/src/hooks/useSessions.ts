@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { ChatMessage, ImageBlock, ContentBlock } from '@sidecar/shared'
 import type { SessionSettings } from '../components/InputBar'
+import { getAuthHeaders, getAuthenticatedWsUrl } from '../utils/auth'
 
 interface Project {
   path: string
@@ -73,7 +74,10 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
   // Fetch all projects
   const fetchProjects = useCallback(async () => {
     try {
-      const res = await fetch(apiUrl + '/api/claude/projects')
+      const res = await fetch(apiUrl + '/api/claude/projects', {
+        headers: getAuthHeaders()
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data: ProjectsResponse = await res.json()
       setProjects(data.projects)
       // Auto-select first (most recent) project
@@ -89,7 +93,10 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
   const fetchSessions = useCallback(async () => {
     if (!currentProject) return
     try {
-      const res = await fetch(apiUrl + '/api/claude/projects/' + encodeURIComponent(currentProject) + '/sessions')
+      const res = await fetch(apiUrl + '/api/claude/projects/' + encodeURIComponent(currentProject) + '/sessions', {
+        headers: getAuthHeaders()
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data: SessionsResponse = await res.json()
       setSessions(data.sessions)
       // Auto-select first (most recent) session
@@ -104,10 +111,13 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
   // Fetch messages for current session
   const fetchMessages = useCallback(async () => {
     if (!currentSessionId) return
-    
+
     setLoading(true)
     try {
-      const res = await fetch(apiUrl + '/api/claude/sessions/' + currentSessionId)
+      const res = await fetch(apiUrl + '/api/claude/sessions/' + currentSessionId, {
+        headers: getAuthHeaders()
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data: SessionMessagesResponse = await res.json()
       setMessages(data.messages)
     } catch (e) {
@@ -142,7 +152,7 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
     try {
       const res = await fetch(apiUrl + '/api/claude/sessions/' + currentSessionId + '/send', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           text,
           images,
@@ -202,7 +212,7 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
         apiUrl + '/api/claude/projects/' + encodeURIComponent(currentProject) + '/new',
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders(),
           body: JSON.stringify({
             text,
             images,
@@ -234,7 +244,10 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
   // Fetch slash commands for a session
   const fetchSlashCommands = useCallback(async (sessionId: string) => {
     try {
-      const res = await fetch(`${apiUrl}/api/claude/sessions/${sessionId}/commands`)
+      const res = await fetch(`${apiUrl}/api/claude/sessions/${sessionId}/commands`, {
+        headers: getAuthHeaders()
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
       setSlashCommands(data.commands || [])
     } catch (e) {
@@ -245,7 +258,10 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
   // Fetch session metadata (model, etc.)
   const fetchSessionMetadata = useCallback(async (sessionId: string) => {
     try {
-      const res = await fetch(`${apiUrl}/api/claude/sessions/${sessionId}/metadata`)
+      const res = await fetch(`${apiUrl}/api/claude/sessions/${sessionId}/metadata`, {
+        headers: getAuthHeaders()
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
       if (data.model && onModelChange) {
         onModelChange(data.model)
@@ -265,7 +281,10 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
     // Fetch messages for this session directly (don't rely on useEffect)
     setLoading(true)
     try {
-      const res = await fetch(apiUrl + '/api/claude/sessions/' + sessionId)
+      const res = await fetch(apiUrl + '/api/claude/sessions/' + sessionId, {
+        headers: getAuthHeaders()
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data: SessionMessagesResponse = await res.json()
       setMessages(data.messages)
       // Set isProcessing if server indicates session is active
@@ -358,7 +377,7 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
       }
 
       console.log('[useSessions] WebSocket connecting...')
-      const ws = new WebSocket(wsUrl)
+      const ws = new WebSocket(getAuthenticatedWsUrl(wsUrl))
       wsRef.current = ws
 
       ws.onopen = () => {

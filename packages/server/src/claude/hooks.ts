@@ -33,7 +33,7 @@ interface ClaudeSettings {
 /**
  * Set up Claude Code notification hooks to forward to Sidecar server
  */
-export function setupClaudeHooks(sidecarPort: number): void {
+export function setupClaudeHooks(sidecarPort: number, authToken?: string): void {
   const claudeDir = join(homedir(), '.claude')
   const settingsPath = join(claudeDir, 'settings.json')
 
@@ -60,9 +60,11 @@ export function setupClaudeHooks(sidecarPort: number): void {
   }
 
   // Create the Sidecar notification hook command
+  // Pass port and auth token via environment variables
+  const envVars = `SIDECAR_PORT=${sidecarPort}${authToken ? ` SIDECAR_TOKEN=${authToken}` : ''}`
   const sidecarHook: ClaudeHook = {
     type: 'command',
-    command: `SIDECAR_PORT=${sidecarPort} node "${hookScriptPath}"`
+    command: `${envVars} node "${hookScriptPath}"`
   }
 
   // Ensure hooks.Notification array exists
