@@ -739,9 +739,12 @@ const httpServer = createServer(async (req, res) => {
 
         // Log watchers for debugging
         const watchers = sessionWatchers.get(session_id)
-        console.log(`[server] Broadcasting permission_request to session ${session_id}`)
-        console.log(`[server] Session has ${watchers?.size || 0} watchers`)
-        console.log(`[server] All watched sessions: ${[...watchedSessions.keys()].join(', ')}`)
+        console.log(`[server] Broadcasting permission_request:`)
+        console.log(`[server]   Session ID: ${session_id}`)
+        console.log(`[server]   Tool: ${toolName}`)
+        console.log(`[server]   Tool ID: ${toolUseId}`)
+        console.log(`[server]   Watchers: ${watchers?.size || 0}`)
+        console.log(`[server]   All watched sessions: ${[...watchedSessions.keys()].join(', ') || '(none)'}`)
 
         // Broadcast to web clients watching this session
         ws.broadcast({
@@ -1107,24 +1110,22 @@ setInterval(() => {
       watchedSession.lastMessageCount = sessionData.messages.length
     }
 
-    // Check if any previously-pending tools are now resolved (have results)
+    // Check if the specific pending hook permission is now resolved
     // This clears the hook-based permission when user accepts in terminal
     const currentPendingIds = new Set(sessionData.pendingToolCalls.map(t => t.id))
-    const previousPendingCount = lastPendingIds.size
+    const pendingHook = pendingHookPermissions.get(sessionId)
 
-    // If there were pending tools and now there are fewer, permission may have been resolved
-    if (previousPendingCount > 0 && currentPendingIds.size < previousPendingCount) {
-      // Check if we have a pending hook permission for this session
-      const pendingHook = pendingHookPermissions.get(sessionId)
-      if (pendingHook) {
-        console.log(`[server] Permission resolved in terminal for session ${sessionId}`)
-        const resolvedToolId = pendingHook.toolUseId
+    if (pendingHook) {
+      // Check if the specific tool we're tracking is no longer pending
+      const toolStillPending = currentPendingIds.has(pendingHook.toolUseId)
+      if (!toolStillPending) {
+        console.log(`[server] Permission resolved in terminal for session ${sessionId} (tool ${pendingHook.toolUseId} no longer pending)`)
         pendingHookPermissions.delete(sessionId)
         // Broadcast to web clients to clear the modal
         ws.broadcast({
           type: 'permission_resolved',
           sessionId,
-          toolId: resolvedToolId
+          toolId: pendingHook.toolUseId
         })
       }
     }
