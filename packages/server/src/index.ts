@@ -55,6 +55,10 @@ interface PendingHookPermission {
 }
 const pendingHookPermissions = new Map<string, PendingHookPermission>()
 
+// Track pending AskUserQuestion tools (file-based detection, since they don't trigger hooks)
+// Maps toolId -> { tool, sessionId }
+const pendingAskUserQuestions = new Map<string, { tool: PendingToolCall; sessionId: string }>()
+
 // Track sessions currently being approved via resume (to avoid re-detecting during approval)
 const sessionsBeingApproved = new Set<string>()
 
@@ -908,6 +912,22 @@ const ws = createWSServer(wss, {
             pendingHookPermissions.delete(sessionId)
           }
         }
+
+        // Re-send any pending AskUserQuestion for this session (handles page reload)
+        for (const [toolId, entry] of pendingAskUserQuestions) {
+          if (entry.sessionId === sessionId) {
+            console.log(`[server] Re-sending pending AskUserQuestion for session ${sessionId}: ${toolId}`)
+            client.send({
+              type: 'permission_request',
+              sessionId,
+              toolName: entry.tool.name,
+              toolUseId: toolId,
+              requestId: toolId,
+              input: entry.tool.input as Record<string, unknown>,
+              source: 'file'
+            })
+          }
+        }
       }
       return
     }
@@ -1063,12 +1083,56 @@ setInterval(() => {
       }
     }
 
-    // Note: File-based permission DETECTION has been removed.
-    // Permission detection is now handled by Claude Code notification hooks
-    // which call the /api/claude-hook endpoint.
-    // This avoids false positives for auto-executing tools like Task.
+    // Check if any pending AskUserQuestion tools are now resolved
+    for (const [toolId, entry] of pendingAskUserQuestions) {
+      if (entry.sessionId === sessionId && !currentPendingIds.has(toolId)) {
+        console.log(`[server] AskUserQuestion resolved in terminal: ${toolId}`)
+        pendingAskUserQuestions.delete(toolId)
+        ws.broadcast({
+          type: 'permission_resolved',
+          sessionId,
+          toolId
+        })
+      }
+    }
 
-    // Track all current pending IDs to support resolution detection above
+    // File-based detection for AskUserQuestion only (doesn't trigger notification hooks)
+    // Skip if session is stale (not modified recently)
+    if (isSessionActive(projectPath, sessionId, 30)) {
+      for (const tool of sessionData.pendingToolCalls) {
+        // Only detect AskUserQuestion - other tools use notification hooks
+        if (tool.name !== 'AskUserQuestion') continue
+
+        // Skip if already tracking this tool
+        if (lastPendingIds.has(tool.id)) continue
+
+        // Skip if tool is too old (stale)
+        const toolTimestamp = new Date(tool.timestamp)
+        const toolAgeMs = Date.now() - toolTimestamp.getTime()
+        if (toolAgeMs > 30000) {
+          console.log(`[server] Skipping stale AskUserQuestion (age: ${Math.round(toolAgeMs / 1000)}s)`)
+          lastPendingIds.add(tool.id)
+          continue
+        }
+
+        console.log(`[server] File-detected AskUserQuestion: ${tool.id}`)
+        lastPendingIds.add(tool.id)
+        pendingAskUserQuestions.set(tool.id, { tool, sessionId })
+
+        // Broadcast to web clients
+        ws.broadcast({
+          type: 'permission_request',
+          sessionId,
+          requestId: tool.id,
+          toolName: tool.name,
+          toolUseId: tool.id,
+          input: tool.input as Record<string, unknown>,
+          source: 'file'
+        })
+      }
+    }
+
+    // Track all current pending IDs to support resolution detection
     for (const tool of sessionData.pendingToolCalls) {
       lastPendingIds.add(tool.id)
     }
