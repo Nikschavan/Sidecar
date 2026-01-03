@@ -36,6 +36,8 @@ interface HomeScreenProps {
   onProjectChange: (path: string) => void
   onSelectSession: (id: string) => void
   onNewSession: () => void
+  onRefresh?: () => void
+  isRefreshing?: boolean
 }
 
 export function HomeScreen({
@@ -44,16 +46,42 @@ export function HomeScreen({
   sessions,
   onProjectChange,
   onSelectSession,
-  onNewSession
+  onNewSession,
+  onRefresh,
+  isRefreshing
 }: HomeScreenProps) {
   return (
     <div className="h-full flex flex-col bg-claude-bg overflow-x-hidden">
       {/* Header */}
       <header
-        className="px-4 max-w-2xl mx-auto w-full"
+        className="px-4 max-w-2xl mx-auto w-full flex items-center justify-between"
         style={{ paddingTop: 'max(env(safe-area-inset-top), 16px)', paddingBottom: '12px' }}
       >
         <h1 className="text-lg font-medium text-claude-text">Sidecar</h1>
+
+        {/* Refresh button */}
+        {onRefresh && (
+          <button
+            onClick={onRefresh}
+            disabled={isRefreshing}
+            className="p-2 hover:bg-claude-bg-light rounded-full transition-colors disabled:opacity-50"
+            title="Refresh sessions"
+          >
+            <svg
+              className={`w-5 h-5 text-claude-text ${isRefreshing ? 'animate-spin' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
+            </svg>
+          </button>
+        )}
       </header>
 
       {/* Project dropdown */}

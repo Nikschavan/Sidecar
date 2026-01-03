@@ -98,14 +98,15 @@ function AppContent() {
     sending,
     isProcessing,
     pendingPermission,
-    slashCommands,
     sendMessage,
     createSession,
     selectProject,
     selectSession,
     respondToPermission,
     abortSession,
-    clearForNewSession
+    clearForNewSession,
+    refresh,
+    isRefreshing
   } = useSessions(API_URL, settings, handleModelChange)
 
   // Sync URL session with state
@@ -168,7 +169,6 @@ function AppContent() {
         sending={sending}
         isProcessing={isProcessing}
         pendingPermission={pendingPermission}
-        slashCommands={slashCommands}
         settings={settings}
         onSend={sendMessage}
         onBack={handleBack}
@@ -187,6 +187,8 @@ function AppContent() {
       onProjectChange={selectProject}
       onSelectSession={handleSelectSession}
       onNewSession={handleNewSession}
+      onRefresh={refresh}
+      isRefreshing={isRefreshing}
     />
   )
 }

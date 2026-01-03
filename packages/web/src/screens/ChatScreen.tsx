@@ -1,6 +1,6 @@
 import type { ChatMessage, ImageBlock } from '@sidecar/shared'
 import { ChatView } from '../components/ChatView'
-import { InputBar, type SlashCommand, type SessionSettings } from '../components/InputBar'
+import { InputBar, type SessionSettings } from '../components/InputBar'
 import { AskUserQuestion } from '../components/AskUserQuestion'
 import { PermissionDialog } from '../components/PermissionDialog'
 
@@ -26,7 +26,6 @@ interface ChatScreenProps {
   sending: boolean
   isProcessing: boolean
   pendingPermission: PendingPermission | null
-  slashCommands?: SlashCommand[]
   settings?: SessionSettings
   onSend: (text: string, images?: ImageBlock[]) => void
   onBack: () => void
@@ -43,7 +42,6 @@ export function ChatScreen({
   sending,
   isProcessing,
   pendingPermission,
-  slashCommands,
   settings,
   onSend,
   onBack,
@@ -104,7 +102,6 @@ export function ChatScreen({
         isProcessing={isProcessing}
         disabled={sending || !!pendingPermission}
         placeholder={pendingPermission ? "Respond to permission request above..." : "Type a message..."}
-        slashCommands={slashCommands}
         settings={settings}
         onSettingsChange={onSettingsChange}
       />
