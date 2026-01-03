@@ -62,6 +62,8 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
   const [pendingPermission, setPendingPermission] = useState<PendingPermission | null>(null)
   const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([])
   const wsRef = useRef<WebSocket | null>(null)
+  const reconnectTimeoutRef = useRef<number | null>(null)
+  const isUnmountedRef = useRef(false)
 
   // WebSocket URL from API URL
   const wsUrl = apiUrl.replace('http', 'ws')
@@ -315,98 +317,131 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
   // WebSocket connection for real-time permission requests
   // Only reconnect when wsUrl changes, not on session changes
   useEffect(() => {
-    const ws = new WebSocket(wsUrl)
-    wsRef.current = ws
+    isUnmountedRef.current = false
 
-    ws.onopen = () => {
-      console.log('[useSessions] WebSocket connected')
-      // If we have a current session, tell server to watch it
-      if (currentSessionIdRef.current) {
-        ws.send(JSON.stringify({ type: 'watch_session', sessionId: currentSessionIdRef.current }))
+    const connect = () => {
+      // Don't reconnect if unmounted
+      if (isUnmountedRef.current) return
+
+      // Close existing connection if any
+      if (wsRef.current) {
+        wsRef.current.close()
+        wsRef.current = null
       }
-    }
 
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data)
-        const sessionId = currentSessionIdRef.current
+      console.log('[useSessions] WebSocket connecting...')
+      const ws = new WebSocket(wsUrl)
+      wsRef.current = ws
 
-        // Handle permission request from server
-        if (msg.type === 'permission_request') {
-          // Only show permission dialogs for the current session
-          if (msg.sessionId === sessionId) {
-            console.log('[useSessions] Permission request:', msg.toolName, msg.input, 'source:', msg.source)
-            setPendingPermission({
-              requestId: msg.requestId,
-              sessionId: msg.sessionId,
-              toolName: msg.toolName,
-              toolUseId: msg.toolUseId,
-              input: msg.input,
-              permissionSuggestions: msg.permissionSuggestions,
-              source: msg.source
-            })
-          } else {
-            console.log('[useSessions] Ignoring permission request for different session:', msg.sessionId, '(current:', sessionId, ')')
-          }
+      ws.onopen = () => {
+        console.log('[useSessions] WebSocket connected')
+        // If we have a current session, tell server to watch it
+        if (currentSessionIdRef.current) {
+          ws.send(JSON.stringify({ type: 'watch_session', sessionId: currentSessionIdRef.current }))
         }
+      }
 
-        // Handle permission resolved from server (permission was handled in terminal)
-        if (msg.type === 'permission_resolved') {
-          if (msg.sessionId === sessionId) {
-            console.log('[useSessions] Permission resolved (handled in terminal):', msg.toolId)
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data)
+          const sessionId = currentSessionIdRef.current
+
+          // Handle permission request from server
+          if (msg.type === 'permission_request') {
+            // Only show permission dialogs for the current session
+            if (msg.sessionId === sessionId) {
+              console.log('[useSessions] Permission request:', msg.toolName, msg.input, 'source:', msg.source)
+              setPendingPermission({
+                requestId: msg.requestId,
+                sessionId: msg.sessionId,
+                toolName: msg.toolName,
+                toolUseId: msg.toolUseId,
+                input: msg.input,
+                permissionSuggestions: msg.permissionSuggestions,
+                source: msg.source
+              })
+            } else {
+              console.log('[useSessions] Ignoring permission request for different session:', msg.sessionId, '(current:', sessionId, ')')
+            }
+          }
+
+          // Handle permission resolved from server (permission was handled in terminal)
+          if (msg.type === 'permission_resolved') {
+            if (msg.sessionId === sessionId) {
+              console.log('[useSessions] Permission resolved (handled in terminal):', msg.toolId)
+              setPendingPermission(prev => {
+                // Clear if the resolved tool matches our pending permission
+                if (prev && (prev.toolUseId === msg.toolId || prev.requestId === msg.toolId)) {
+                  return null
+                }
+                return prev
+              })
+            }
+          }
+
+          // Handle claude message - append to existing messages instead of full refetch
+          // Only update if message is for the current session
+          if (msg.type === 'claude_message' && msg.message && (!msg.sessionId || msg.sessionId === sessionId)) {
+            // Check if the pending permission's tool call now has a result
+            // This means permission was handled elsewhere (e.g., terminal)
             setPendingPermission(prev => {
-              // Clear if the resolved tool matches our pending permission
-              if (prev && (prev.toolUseId === msg.toolId || prev.requestId === msg.toolId)) {
-                return null
+              if (prev && prev.sessionId === sessionId && prev.toolUseId) {
+                // Check if this message contains the tool call with a result
+                const toolCalls = msg.message.toolCalls as Array<{ id: string; result?: string }> | undefined
+                const resolvedTool = toolCalls?.find(t => t.id === prev.toolUseId && t.result !== undefined)
+                if (resolvedTool) {
+                  console.log('[useSessions] Tool call resolved, clearing pending permission (handled elsewhere)')
+                  return null
+                }
               }
               return prev
             })
-          }
-        }
 
-        // Handle claude message - append to existing messages instead of full refetch
-        // Only update if message is for the current session
-        if (msg.type === 'claude_message' && msg.message && (!msg.sessionId || msg.sessionId === sessionId)) {
-          // Check if the pending permission's tool call now has a result
-          // This means permission was handled elsewhere (e.g., terminal)
-          setPendingPermission(prev => {
-            if (prev && prev.sessionId === sessionId && prev.toolUseId) {
-              // Check if this message contains the tool call with a result
-              const toolCalls = msg.message.toolCalls as Array<{ id: string; result?: string }> | undefined
-              const resolvedTool = toolCalls?.find(t => t.id === prev.toolUseId && t.result !== undefined)
-              if (resolvedTool) {
-                console.log('[useSessions] Tool call resolved, clearing pending permission (handled elsewhere)')
-                return null
+            setMessages(prev => {
+              // Check if message already exists (by id) to avoid duplicates
+              const exists = prev.some(m => m.id === msg.message.id)
+              if (exists) {
+                // Update existing message (for streaming updates)
+                return prev.map(m => m.id === msg.message.id ? msg.message : m)
               }
-            }
-            return prev
-          })
-
-          setMessages(prev => {
-            // Check if message already exists (by id) to avoid duplicates
-            const exists = prev.some(m => m.id === msg.message.id)
-            if (exists) {
-              // Update existing message (for streaming updates)
-              return prev.map(m => m.id === msg.message.id ? msg.message : m)
-            }
-            return [...prev, msg.message]
-          })
+              return [...prev, msg.message]
+            })
+          }
+        } catch (e) {
+          console.error('[useSessions] Failed to parse message:', e)
         }
-      } catch (e) {
-        console.error('[useSessions] Failed to parse message:', e)
+      }
+
+      ws.onclose = () => {
+        console.log('[useSessions] WebSocket disconnected')
+        // Auto-reconnect after 2 seconds if:
+        // - not unmounted
+        // - this is still the current WebSocket (not replaced by a new one)
+        if (!isUnmountedRef.current && wsRef.current === ws) {
+          reconnectTimeoutRef.current = window.setTimeout(() => {
+            connect()
+          }, 2000)
+        }
+      }
+
+      ws.onerror = (err) => {
+        console.error('[useSessions] WebSocket error:', err)
       }
     }
 
-    ws.onclose = () => {
-      console.log('[useSessions] WebSocket disconnected')
-    }
-
-    ws.onerror = (err) => {
-      console.error('[useSessions] WebSocket error:', err)
-    }
+    connect()
 
     return () => {
-      ws.close()
+      isUnmountedRef.current = true
+      // Clear any pending reconnect timeout
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current)
+        reconnectTimeoutRef.current = null
+      }
+      if (wsRef.current) {
+        wsRef.current.close()
+        wsRef.current = null
+      }
     }
   }, [wsUrl])
 
