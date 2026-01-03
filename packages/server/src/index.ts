@@ -10,6 +10,7 @@ import { createWSServer, type WSClient } from './ws/server.js'
 import { createSessionManager } from './session/manager.js'
 import { listClaudeSessions, readClaudeSession, getMostRecentSession, listAllProjects, findSessionProject, readSessionData, getSessionMetadata, isSessionActive, type PendingToolCall } from './claude/sessions.js'
 import { spawnClaude, type ClaudeProcess, type PermissionRequest } from './claude/spawn.js'
+import { setupClaudeHooks, removeClaudeHooks } from './claude/hooks.js'
 import type { ClientMessage } from '@sidecar/shared'
 
 const PORT = parseInt(process.env.PORT || '3456', 10)
@@ -42,9 +43,14 @@ const watchedSessions = new Map<string, { projectPath: string; lastPendingIds: S
 const clientWatchingSession = new Map<string, string>() // clientId -> sessionId
 const sessionWatchers = new Map<string, Set<string>>() // sessionId -> Set<clientId>
 
-// Track pending file-based permissions that were broadcast (waiting for user response)
-// Maps toolId -> { tool, sessionId } so we can re-send on page reload
-const pendingFilePermissions = new Map<string, { tool: PendingToolCall; sessionId: string }>()
+// Track pending hook-based permissions for re-sending on page reload
+// Maps sessionId -> hook notification data (message only, no tool details)
+interface PendingHookPermission {
+  sessionId: string
+  message: string
+  timestamp: number
+}
+const pendingHookPermissions = new Map<string, PendingHookPermission>()
 
 // Track sessions currently being approved via resume (to avoid re-detecting during approval)
 const sessionsBeingApproved = new Set<string>()
@@ -681,6 +687,49 @@ const httpServer = createServer(async (req, res) => {
     return
   }
 
+  // Handle Claude Code hook notifications (from notification hooks)
+  if (url.pathname === '/api/claude-hook' && req.method === 'POST') {
+    let body = ''
+    for await (const chunk of req) {
+      body += chunk
+    }
+    try {
+      const hookData = JSON.parse(body || '{}')
+      const { session_id, notification_type, message } = hookData
+      console.log(`[server] Hook notification: ${notification_type} for session ${session_id}`)
+
+      if (notification_type === 'permission_prompt') {
+        const hookId = `hook-${session_id}`
+
+        // Track the permission for re-sending on page reload
+        pendingHookPermissions.set(session_id, {
+          sessionId: session_id,
+          message,
+          timestamp: Date.now()
+        })
+
+        // Broadcast to web clients watching this session
+        ws.broadcast({
+          type: 'permission_request',
+          sessionId: session_id,
+          toolName: 'Permission Required', // Hook doesn't provide detailed tool info
+          toolUseId: hookId,
+          requestId: hookId,
+          input: { message },
+          source: 'hook'  // Indicate this came from hook, not file detection
+        })
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ ok: true }))
+    } catch (err) {
+      console.error(`[server] Failed to parse hook data: ${(err as Error).message}`)
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Invalid JSON' }))
+    }
+    return
+  }
+
   // 404
   res.writeHead(404, { 'Content-Type': 'application/json' })
   res.end(JSON.stringify({ error: 'Not found' }))
@@ -862,19 +911,26 @@ const ws = createWSServer(wss, {
           console.log(`[server] Client ${client.id} joining watch for session ${sessionId} (${sessionWatchers.get(sessionId)?.size} watchers)`)
         }
 
-        // Re-send any pending permissions for this session (handles page reload case)
-        for (const [toolId, entry] of pendingFilePermissions) {
-          if (entry.sessionId === sessionId) {
-            console.log(`[server] Re-sending pending permission for ${entry.tool.name} (${toolId}) on watch`)
+        // Re-send any pending hook-based permissions for this session (handles page reload)
+        const pendingHook = pendingHookPermissions.get(sessionId)
+        if (pendingHook) {
+          // Only re-send if permission is recent (within last 5 minutes)
+          const ageMs = Date.now() - pendingHook.timestamp
+          if (ageMs < 300000) {
+            const hookId = `hook-${sessionId}`
+            console.log(`[server] Re-sending pending hook permission for session ${sessionId}`)
             client.send({
               type: 'permission_request',
               sessionId,
-              requestId: toolId,
-              toolName: entry.tool.name,
-              toolUseId: toolId,
-              input: entry.tool.input as Record<string, unknown>,
-              source: 'file'
+              toolName: 'Permission Required',
+              toolUseId: hookId,
+              requestId: hookId,
+              input: { message: pendingHook.message },
+              source: 'hook'
             })
+          } else {
+            // Permission too old, remove it
+            pendingHookPermissions.delete(sessionId)
           }
         }
       }
@@ -930,23 +986,12 @@ const ws = createWSServer(wss, {
         console.log(`[server] Added ${toolName} to allowed tools for session ${sessionId}`)
       }
 
-      // Check if this is a file-based permission (Claude running in terminal)
-      const pendingEntry = pendingFilePermissions.get(requestId)
-      if (pendingEntry) {
-        pendingFilePermissions.delete(requestId)
-        const watched = watchedSessions.get(sessionId)
-        if (watched && allow) {
-          console.log(`[server] Approving file-based permission via resume`)
-          approveToolViaResume(sessionId, watched.projectPath, pendingEntry.tool)
-        } else if (!allow) {
-          console.log(`[server] User denied file-based permission - cannot deny terminal Claude`)
-          // Note: We can't actually deny permissions for terminal Claude
-          // The terminal will still be waiting for user input
-        }
-        return
-      }
+      // Note: File-based permission responses are no longer supported since
+      // permission detection moved to Claude Code notification hooks.
+      // Hooks only notify of permissions; users must respond in terminal.
+      // This section handles active process permissions (spawned by Sidecar).
 
-      // Otherwise, it's an active process permission
+      // Handle active process permission
       const activeProcess = activeProcesses.get(sessionId)
       if (activeProcess) {
         // Send permission response to Claude process
@@ -1029,81 +1074,33 @@ setInterval(() => {
     }
 
     // Check if any previously-pending tools are now resolved (have results)
-    // This happens when user accepts permission in terminal
+    // This clears the hook-based permission when user accepts in terminal
     const currentPendingIds = new Set(sessionData.pendingToolCalls.map(t => t.id))
-    for (const toolId of lastPendingIds) {
-      // If a tool was in lastPendingIds but is no longer pending, it was resolved
-      if (!currentPendingIds.has(toolId) && pendingFilePermissions.has(toolId)) {
-        console.log(`[server] Permission resolved (handled in terminal): ${toolId}`)
-        pendingFilePermissions.delete(toolId)
+    const previousPendingCount = lastPendingIds.size
+
+    // If there were pending tools and now there are fewer, permission may have been resolved
+    if (previousPendingCount > 0 && currentPendingIds.size < previousPendingCount) {
+      // Check if we have a pending hook permission for this session
+      if (pendingHookPermissions.has(sessionId)) {
+        console.log(`[server] Permission resolved in terminal for session ${sessionId}`)
+        pendingHookPermissions.delete(sessionId)
         // Broadcast to web clients to clear the modal
         ws.broadcast({
           type: 'permission_resolved',
           sessionId,
-          toolId
+          toolId: `hook-${sessionId}`
         })
       }
     }
 
-    // Skip permission detection if there's already an active process for this session
-    if (activeProcesses.has(sessionId)) continue
+    // Note: File-based permission DETECTION has been removed.
+    // Permission detection is now handled by Claude Code notification hooks
+    // which call the /api/claude-hook endpoint.
+    // This avoids false positives for auto-executing tools like Task.
 
-    // Skip if we're currently approving a permission for this session
-    if (sessionsBeingApproved.has(sessionId)) continue
-
-    // Only detect permissions if the session file was recently modified (active terminal Claude)
-    // This prevents showing stale permission modals for inactive sessions
-    // Use 30 second threshold to be more lenient with active sessions
-    if (!isSessionActive(projectPath, sessionId, 30)) {
-      // Session is stale - just track the pending IDs to prevent future broadcasts
-      for (const tool of sessionData.pendingToolCalls) {
-        if (!lastPendingIds.has(tool.id)) {
-          console.log(`[server] Session ${sessionId} is stale (file not modified in 30s), skipping pending tool ${tool.name}`)
-          lastPendingIds.add(tool.id)
-        }
-      }
-      continue
-    }
-
+    // Track all current pending IDs to support resolution detection above
     for (const tool of sessionData.pendingToolCalls) {
-      // Skip if we already broadcast this one
-      if (lastPendingIds.has(tool.id)) continue
-
-      // Additional check: skip if the tool timestamp is older than 30 seconds
-      // This handles cases where the session file is active but this specific tool is stale
-      const toolTimestamp = new Date(tool.timestamp)
-      const now = new Date()
-      const toolAgeMs = now.getTime() - toolTimestamp.getTime()
-      if (toolAgeMs > 30000) {
-        console.log(`[server] Skipping stale pending tool ${tool.name} (age: ${Math.round(toolAgeMs / 1000)}s)`)
-        lastPendingIds.add(tool.id)
-        continue
-      }
-
-      // Check if tool is already allowed
-      const allowedTools = allowedToolsBySession.get(sessionId)
-      if (allowedTools?.has(tool.name)) {
-        console.log(`[server] Auto-approving file-detected ${tool.name} (allowed for session)`)
-        // Spawn Claude to approve this tool
-        approveToolViaResume(sessionId, projectPath, tool)
-        lastPendingIds.add(tool.id)
-        continue
-      }
-
-      console.log(`[server] File-detected pending permission: ${tool.name} (${tool.id})`)
       lastPendingIds.add(tool.id)
-      pendingFilePermissions.set(tool.id, { tool, sessionId })
-
-      // Broadcast to web clients
-      ws.broadcast({
-        type: 'permission_request',
-        sessionId,
-        requestId: tool.id,
-        toolName: tool.name,
-        toolUseId: tool.id,
-        input: tool.input as Record<string, unknown>,
-        source: 'file' // Indicate this came from file detection, not active process
-      })
     }
   }
 }, 1000) // Check every second
@@ -1165,6 +1162,9 @@ function approveToolViaResume(sessionId: string, projectPath: string, tool: Pend
 
 // Start server
 httpServer.listen(PORT, () => {
+  // Configure Claude Code notification hooks to forward to this server
+  setupClaudeHooks(PORT)
+
   console.log(`
 ┌─────────────────────────────────────────┐
 │           Sidecar Server                │
@@ -1192,3 +1192,13 @@ WebSocket:
   { type: 'send', text: '...' }
 `)
 })
+
+// Graceful shutdown - remove hooks from Claude settings
+function shutdown(signal: string) {
+  console.log(`\n[server] Received ${signal}, shutting down...`)
+  removeClaudeHooks()
+  process.exit(0)
+}
+
+process.on('SIGINT', () => shutdown('SIGINT'))
+process.on('SIGTERM', () => shutdown('SIGTERM'))

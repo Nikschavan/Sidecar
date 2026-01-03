@@ -65,7 +65,7 @@ export interface ServerPermissionRequestMessage {
     mode?: string
     destination?: string
   }>
-  source?: 'process' | 'file' // 'process' = active spawn, 'file' = detected from session file
+  source?: 'process' | 'file' | 'hook' // 'process' = active spawn, 'file' = detected from session file, 'hook' = from Claude Code notification hook
 }
 
 // Permission resolved (was handled in terminal)
