@@ -575,7 +575,7 @@ const httpServer = createServer(async (req, res) => {
       resume: sessionId,
       onMessage: (msg) => {
         responses.push(msg)
-        ws.broadcast({ type: 'claude_message', message: msg })
+        ws.broadcast({ type: 'claude_message', message: msg, sessionId })
       }
     })
 
@@ -994,11 +994,11 @@ sessionManager.onMessage((sessionId, message) => {
     // We need to find the client by checking clientSessions
     // This is a bit hacky, but works for now
   })
-  ws.broadcast({ type: 'message', message })
+  ws.broadcast({ type: 'message', message, sessionId })
 })
 
 sessionManager.onStateChange((sessionId, state) => {
-  ws.broadcast({ type: 'state_change', state })
+  ws.broadcast({ type: 'state_change', state, sessionId })
 })
 
 sessionManager.onSessionReady((sessionId, claudeSessionId) => {

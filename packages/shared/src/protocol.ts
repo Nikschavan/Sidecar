@@ -18,11 +18,13 @@ export interface ServerHistoryMessage {
 export interface ServerMessageMessage {
   type: 'message'
   message: ChatMessage
+  sessionId?: string
 }
 
 export interface ServerStateChangeMessage {
   type: 'state_change'
   state: SessionState
+  sessionId?: string
 }
 
 export interface ServerErrorMessage {
