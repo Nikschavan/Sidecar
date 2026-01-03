@@ -1,0 +1,13 @@
+# Build outputs
+dist/
+
+# Generated files
+src/web/embeddedAssets.generated.ts
+
+# Binaries
+sidecar
+sidecar-*
+*.exe
+
+# Bun build artifacts
+.*.bun-build

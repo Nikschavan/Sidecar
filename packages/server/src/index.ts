@@ -13,6 +13,7 @@ import { claudeService } from './services/claude.service.js'
 import { sessionsService } from './services/sessions.service.js'
 import { setupClaudeHooks, removeClaudeHooks } from './claude/hooks.js'
 import { loadOrCreateToken, rotateToken, getAuthFilePath } from './auth/token.js'
+import { formatNetworkUrls } from './utils/network.js'
 import {
   handleSubscribe,
   handleSend,
@@ -175,27 +176,17 @@ httpServer.listen(PORT, () => {
   console.log(`
 ┌─────────────────────────────────────────┐
 │           Sidecar Server                │
-├─────────────────────────────────────────┤
-│  HTTP:  http://localhost:${PORT}          │
-│  WS:    ws://localhost:${PORT}            │
-│  CWD:   ${CWD.slice(0, 30)}...
 └─────────────────────────────────────────┘
+
+Web UI:
+${formatNetworkUrls(PORT, 'http')}
+
+WebSocket:
+${formatNetworkUrls(PORT, 'ws')}
 
 Authentication:
   Token: ${AUTH_TOKEN}
   File:  ${getAuthFilePath()}
-
-  Use --rotate-token to generate a new token
-
-API Endpoints (require Authorization: Bearer <token>):
-  GET  /api/claude/sessions       List Claude sessions
-  GET  /api/claude/sessions/:id   Get session messages
-  POST /api/claude/sessions/:id/send  Send message to session
-  GET  /api/sessions              List Sidecar sessions
-  POST /api/sessions              Create session
-
-WebSocket (requires ?token=<token>):
-  ws://localhost:${PORT}?token=<token>
 `)
 })
 

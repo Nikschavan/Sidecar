@@ -20,3 +20,9 @@ dist/
 # Environment
 .env
 .env.local
+
+# Binaries
+sidecar
+sidecar-*
+packages/server/sidecar
+packages/server/sidecar-*

@@ -6,6 +6,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { routes } from './routes/index.js'
 import { authMiddleware } from './middleware/auth.js'
+import { embeddedAssetsMiddleware } from './web/serve-embedded.js'
 
 /**
  * Create a new Hono app instance
@@ -20,6 +21,10 @@ export function createApp(): Hono {
     allowMethods: ['GET', 'POST', 'OPTIONS'],
     allowHeaders: ['Content-Type', 'Authorization']
   }))
+
+  // Serve embedded web assets FIRST (only in compiled binary)
+  // This must come before routes so web UI is served at /
+  app.use('*', embeddedAssetsMiddleware)
 
   // Auth middleware for /api/* routes
   app.use('/api/*', authMiddleware)

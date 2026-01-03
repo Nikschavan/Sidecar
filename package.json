@@ -5,7 +5,6 @@
     "onlyBuiltDependencies": ["node-pty"]
   },
   "scripts": {
-    "postinstall": "chmod +x node_modules/.pnpm/node-pty@*/node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true",
     "dev": "pnpm --filter @sidecar/server dev",
     "dev:web": "pnpm --filter @sidecar/web dev",
     "dev:all": "concurrently \"pnpm server\" \"pnpm web\" --kill-others-on-fail",
@@ -18,7 +17,8 @@
     "start": "concurrently \"pnpm server\" \"pnpm web\" -n server,web -c blue,green",
     "typecheck": "pnpm -r typecheck",
     "clean": "pnpm -r clean",
-    "test": "pnpm --filter @sidecar/server test"
+    "test": "pnpm --filter @sidecar/server test",
+    "build:binary": "pnpm --filter @sidecar/server build:binary"
   },
   "devDependencies": {
     "concurrently": "^9.0.0",

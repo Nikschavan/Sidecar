@@ -14,7 +14,10 @@
     "clean": "rm -rf dist",
     "test": "tsx src/test.ts",
     "test:auth": "node --import tsx --test src/auth/token.test.ts",
-    "server:watch": "bash scripts/watch-server.sh"
+    "server:watch": "bash scripts/watch-server.sh",
+    "generate:assets": "bun scripts/generate-embedded-assets.ts",
+    "build:binary": "bun scripts/build-binary.ts",
+    "build:exe": "bun build --compile --outfile=sidecar src/cli.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.7",
