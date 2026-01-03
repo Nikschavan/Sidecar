@@ -32,21 +32,6 @@ export interface ServerErrorMessage {
   error: string
 }
 
-// Server -> CLI messages
-export interface ServerPhoneMessage {
-  type: 'phone_message'
-  text: string
-}
-
-export interface ServerSwitchToRemoteMessage {
-  type: 'switch_to_remote'
-}
-
-// Server -> Phone messages
-export interface ServerSessionUpdateMessage {
-  type: 'session_update'
-  sessionId: string | null
-}
 
 export interface ServerClaudeMessageMessage {
   type: 'claude_message'
@@ -89,9 +74,6 @@ export type ServerMessage =
   | ServerMessageMessage
   | ServerStateChangeMessage
   | ServerErrorMessage
-  | ServerPhoneMessage
-  | ServerSwitchToRemoteMessage
-  | ServerSessionUpdateMessage
   | ServerClaudeMessageMessage
   | ServerPermissionRequestMessage
   | ServerPermissionResolvedMessage
@@ -112,40 +94,6 @@ export interface ClientPingMessage {
   type: 'ping'
 }
 
-// CLI client messages
-export interface ClientRegisterCliMessage {
-  type: 'register_cli'
-  timestamp: string
-}
-
-export interface ClientSetSessionMessage {
-  type: 'set_session'
-  sessionId: string
-  timestamp: string
-}
-
-export interface ClientClaudeMessageMessage {
-  type: 'claude_message'
-  message: unknown
-  timestamp: string
-}
-
-// Phone client messages
-export interface ClientRegisterPhoneMessage {
-  type: 'register_phone'
-  timestamp: string
-}
-
-export interface ClientPhoneSendMessage {
-  type: 'phone_send'
-  text: string
-  timestamp: string
-}
-
-export interface ClientTakeOverMessage {
-  type: 'take_over'
-  timestamp: string
-}
 
 // Permission response from user (approve/deny)
 export interface ClientPermissionResponseMessage {
@@ -172,12 +120,6 @@ export type ClientMessage =
   | ClientSendMessage
   | ClientSubscribeMessage
   | ClientPingMessage
-  | ClientRegisterCliMessage
-  | ClientSetSessionMessage
-  | ClientClaudeMessageMessage
-  | ClientRegisterPhoneMessage
-  | ClientPhoneSendMessage
-  | ClientTakeOverMessage
   | ClientPermissionResponseMessage
   | ClientWatchSessionMessage
   | ClientAbortSessionMessage

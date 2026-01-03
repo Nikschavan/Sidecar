@@ -58,11 +58,6 @@ const pendingHookPermissions = new Map<string, PendingHookPermission>()
 // Track sessions currently being approved via resume (to avoid re-detecting during approval)
 const sessionsBeingApproved = new Set<string>()
 
-// Track CLI client and phone clients for relay mode
-let cliClient: WSClient | null = null
-let currentClaudeSessionId: string | null = null
-const phoneClients = new Set<WSClient>()
-
 // Create HTTP server
 const httpServer = createServer(async (req, res) => {
   // CORS headers
@@ -788,64 +783,7 @@ const ws = createWSServer(wss, {
   onMessage(client, message: ClientMessage) {
     console.log(`[server] Received from ${client.id}:`, message.type)
 
-    // CLI client registration
-    if (message.type === 'register_cli') {
-      console.log(`[server] CLI registered: ${client.id}`)
-      cliClient = client
-      return
-    }
-
-    // CLI sets the Claude session ID
-    if (message.type === 'set_session') {
-      currentClaudeSessionId = message.sessionId
-      console.log(`[server] Claude session: ${currentClaudeSessionId}`)
-      // Notify phone clients
-      phoneClients.forEach((phone) => {
-        phone.send({ type: 'session_update', sessionId: currentClaudeSessionId })
-      })
-      return
-    }
-
-    // CLI forwards Claude message to phones
-    if (message.type === 'claude_message') {
-      console.log(`[server] Claude message → ${phoneClients.size} phone(s)`)
-      phoneClients.forEach((phone) => {
-        phone.send({ type: 'claude_message', message: message.message })
-      })
-      return
-    }
-
-    // Phone registration
-    if (message.type === 'register_phone') {
-      console.log(`[server] Phone registered: ${client.id}`)
-      phoneClients.add(client)
-      // Send current session info
-      if (currentClaudeSessionId) {
-        client.send({ type: 'session_update', sessionId: currentClaudeSessionId })
-      }
-      return
-    }
-
-    // Phone sends message to CLI
-    if (message.type === 'phone_send') {
-      const text = message.text
-      console.log(`[server] Phone message → CLI: ${text.slice(0, 50)}...`)
-      if (cliClient) {
-        cliClient.send({ type: 'phone_message', text })
-      }
-      return
-    }
-
-    // Phone wants to take over (switch CLI to remote mode)
-    if (message.type === 'take_over') {
-      console.log(`[server] Phone taking over`)
-      if (cliClient) {
-        cliClient.send({ type: 'switch_to_remote' })
-      }
-      return
-    }
-
-    // Handle subscribe to session (legacy/web client mode)
+    // Handle subscribe to session
     if (message.type === 'subscribe') {
       const sessionId = message.sessionId
       const session = sessionManager.getSession(sessionId)
@@ -1043,11 +981,6 @@ const ws = createWSServer(wss, {
 
   onClose(client) {
     clientSessions.delete(client.id)
-    phoneClients.delete(client)
-    if (cliClient?.id === client.id) {
-      console.log(`[server] CLI disconnected`)
-      cliClient = null
-    }
 
     // Clean up session watching
     const sessionId = clientWatchingSession.get(client.id)
