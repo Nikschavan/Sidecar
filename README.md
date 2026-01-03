@@ -47,12 +47,10 @@ Requires [Bun](https://bun.sh) for building the binary.
 pnpm install
 
 # Build web UI
-pnpm build:web
+pnpm build
 
 # Generate embedded assets and compile binary
-cd packages/server
-bun scripts/generate-embedded-assets.ts
-bun build --compile --outfile=sidecar src/cli.ts
+pnpm build:binary
 ```
 
 ## Architecture
