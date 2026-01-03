@@ -48,12 +48,24 @@ export function useSessionWebSocket({
   const isUnmountedRef = useRef(false)
   const currentSessionIdRef = useRef(currentSessionId)
 
+  // Store callbacks in refs to avoid reconnecting when they change
+  const onPermissionRequestRef = useRef(onPermissionRequest)
+  const onPermissionResolvedRef = useRef(onPermissionResolved)
+  const onSessionAbortedRef = useRef(onSessionAborted)
+  const onProcessingCompleteRef = useRef(onProcessingComplete)
+  const onToolResolvedRef = useRef(onToolResolved)
+
   const wsUrl = apiUrl.replace('http', 'ws')
 
-  // Keep session ID ref in sync
+  // Keep refs in sync
   useEffect(() => {
     currentSessionIdRef.current = currentSessionId
-  }, [currentSessionId])
+    onPermissionRequestRef.current = onPermissionRequest
+    onPermissionResolvedRef.current = onPermissionResolved
+    onSessionAbortedRef.current = onSessionAborted
+    onProcessingCompleteRef.current = onProcessingComplete
+    onToolResolvedRef.current = onToolResolved
+  }, [currentSessionId, onPermissionRequest, onPermissionResolved, onSessionAborted, onProcessingComplete, onToolResolved])
 
   // Update React Query cache from WebSocket message
   const updateMessagesCache = useCallback((message: ChatMessage, sessionId: string) => {
@@ -123,7 +135,7 @@ export function useSessionWebSocket({
 
           // Handle permission request
           if (msg.type === 'permission_request' && msg.sessionId === sessionId) {
-            onPermissionRequest({
+            onPermissionRequestRef.current({
               requestId: msg.requestId,
               sessionId: msg.sessionId,
               toolName: msg.toolName,
@@ -136,12 +148,12 @@ export function useSessionWebSocket({
 
           // Handle permission resolved
           if (msg.type === 'permission_resolved' && msg.sessionId === sessionId) {
-            onPermissionResolved(msg.toolId)
+            onPermissionResolvedRef.current(msg.toolId)
           }
 
           // Handle session aborted
           if (msg.type === 'session_aborted' && msg.sessionId === sessionId) {
-            onSessionAborted()
+            onSessionAbortedRef.current()
           }
 
           // Handle claude message - update React Query cache
@@ -150,15 +162,15 @@ export function useSessionWebSocket({
 
             // Check if Claude finished processing
             if (msg.message.type === 'result') {
-              onProcessingComplete()
+              onProcessingCompleteRef.current()
             }
 
             // Check if tool call was resolved
             const toolCalls = msg.message.toolCalls as Array<{ id: string; result?: string }> | undefined
-            if (toolCalls && onToolResolved) {
+            if (toolCalls && onToolResolvedRef.current) {
               for (const tool of toolCalls) {
                 if (tool.result !== undefined) {
-                  onToolResolved(tool.id)
+                  onToolResolvedRef.current(tool.id)
                 }
               }
             }
@@ -192,7 +204,7 @@ export function useSessionWebSocket({
         wsRef.current = null
       }
     }
-  }, [wsUrl, updateMessagesCache, onPermissionRequest, onPermissionResolved, onSessionAborted, onProcessingComplete, onToolResolved])
+  }, [wsUrl, updateMessagesCache])
 
   // Send watch_session when session changes
   useEffect(() => {
