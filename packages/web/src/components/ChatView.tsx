@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, memo, useState } from 'react'
+import { useEffect, useRef, useCallback, memo, useState, useMemo } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -6,6 +6,79 @@ import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import type { ChatMessage, ImageBlock } from '@sidecar/shared'
 import { getTextContent, getImageBlocks } from '@sidecar/shared'
 import { ToolCard } from './ToolCard'
+
+// Parse command message format from user messages
+interface ParsedCommand {
+  name: string
+  message: string
+  args: string
+  stdout: string
+}
+
+interface ParsedUserMessage {
+  type: 'command' | 'text' | 'stdout'
+  command?: ParsedCommand
+  stdout?: string
+  text?: string
+}
+
+function parseUserMessage(text: string): ParsedUserMessage {
+  // Check if this is a command message (contains command XML tags)
+  const commandNameMatch = text.match(/<command-name>(.*?)<\/command-name>/s)
+  const commandMessageMatch = text.match(/<command-message>(.*?)<\/command-message>/s)
+  const commandArgsMatch = text.match(/<command-args>(.*?)<\/command-args>/s)
+  const stdoutMatch = text.match(/<local-command-stdout>(.*?)<\/local-command-stdout>/s)
+
+  if (commandNameMatch) {
+    // This is a command message with the command name
+    const name = commandNameMatch[1].trim()
+    return {
+      type: 'command',
+      command: {
+        // Remove leading slash if already present to avoid double-slash
+        name: name.startsWith('/') ? name.slice(1) : name,
+        message: commandMessageMatch?.[1].trim() || '',
+        args: commandArgsMatch?.[1].trim() || '',
+        stdout: stdoutMatch?.[1].trim() || '',
+      },
+    }
+  }
+
+  // Check if this is ONLY a stdout message (separate from command)
+  if (stdoutMatch && text.trim() === `<local-command-stdout>${stdoutMatch[1]}</local-command-stdout>`) {
+    return {
+      type: 'stdout',
+      stdout: stdoutMatch[1].trim(),
+    }
+  }
+
+  // Regular text message
+  return {
+    type: 'text',
+    text: text.trim(),
+  }
+}
+
+// Terminal-style command display component
+function CommandDisplay({ command }: { command: ParsedCommand }) {
+  return (
+    <div className="font-mono text-sm">
+      <div className="flex items-start gap-2">
+        <span className="text-claude-text-muted select-none">&gt;</span>
+        <span className="text-claude-text font-medium">/{command.name}</span>
+        {command.args && (
+          <span className="text-claude-text-muted">{command.args}</span>
+        )}
+      </div>
+      {command.stdout && (
+        <div className="ml-4 mt-1 text-claude-text-muted flex items-start gap-1">
+          <span className="select-none">└</span>
+          <span>{command.stdout}</span>
+        </div>
+      )}
+    </div>
+  )
+}
 
 // Get image source URL (data URL for base64, or regular URL)
 function getImageSrc(image: ImageBlock): string {
@@ -144,14 +217,54 @@ const MessageBubble = memo(function MessageBubble({ message }: { message: ChatMe
   const textContent = getTextContent(message)
   const imageBlocks = getImageBlocks(message)
 
+  // Parse user messages to detect commands
+  const parsedUserMessage = useMemo(() => {
+    if (isUser && textContent) {
+      return parseUserMessage(textContent)
+    }
+    return null
+  }, [isUser, textContent])
+
   if (isUser) {
-    // User messages get a subtle bubble
+    // Stdout-only messages (part of command output shown separately)
+    if (parsedUserMessage?.type === 'stdout') {
+      return (
+        <div className="bg-claude-user-bubble rounded-2xl px-4 py-3">
+          <div className="font-mono text-sm text-claude-text-muted flex items-start gap-1">
+            <span className="select-none ml-4">└</span>
+            <span>{parsedUserMessage.stdout}</span>
+          </div>
+        </div>
+      )
+    }
+
+    // Check if this is a command message
+    if (parsedUserMessage?.type === 'command' && parsedUserMessage.command) {
+      return (
+        <>
+          {popupImage && <ImagePopup image={popupImage} onClose={() => setPopupImage(null)} />}
+          <div className="bg-claude-user-bubble rounded-2xl px-4 py-3">
+            <CommandDisplay command={parsedUserMessage.command} />
+            {imageBlocks.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {imageBlocks.map((img, i) => (
+                  <ImageLink key={i} index={i} onClick={() => setPopupImage(img)} />
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )
+    }
+
+    // Regular user message (with caveat stripped if present)
+    const displayText = parsedUserMessage?.text || textContent
     return (
       <>
         {popupImage && <ImagePopup image={popupImage} onClose={() => setPopupImage(null)} />}
         <div className="bg-claude-user-bubble rounded-2xl px-4 py-3">
           <div className="whitespace-pre-wrap break-words text-[15px] text-claude-text">
-            {textContent}
+            {displayText}
           </div>
           {imageBlocks.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-2">

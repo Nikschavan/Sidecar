@@ -55,6 +55,23 @@ export function isSessionActive(cwd: string, sessionId: string, withinSeconds: n
 }
 
 /**
+ * Clean command XML tags from user messages for display
+ */
+function cleanUserMessage(text: string): string {
+  // Check if this is a command message with XML tags
+  const commandNameMatch = text.match(/<command-name>(.*?)<\/command-name>/s)
+  if (commandNameMatch) {
+    // Extract command name and format as terminal-style
+    const commandName = commandNameMatch[1].trim()
+    const argsMatch = text.match(/<command-args>(.*?)<\/command-args>/s)
+    const args = argsMatch?.[1].trim() || ''
+    return `/${commandName}${args ? ' ' + args : ''}`
+  }
+
+  return text.trim()
+}
+
+/**
  * Extract session name from a session file
  */
 function extractSessionName(filePath: string): string | null {
@@ -80,15 +97,23 @@ function extractSessionName(filePath: string): string | null {
           slug = entry.slug
         }
 
-        // Get first user message as fallback
-        if (entry.type === 'user' && entry.message?.content && !firstUserMessage) {
+        // Get first user message as fallback (skip meta messages like caveats)
+        if (entry.type === 'user' && entry.message?.content && !firstUserMessage && !entry.isMeta) {
           const content = entry.message.content
+          let rawMessage: string | null = null
           if (typeof content === 'string') {
-            firstUserMessage = content.slice(0, 50)
+            rawMessage = content
           } else if (Array.isArray(content)) {
             const textBlock = content.find((c: { type: string; text?: string }) => c.type === 'text' && c.text)
             if (textBlock?.text) {
-              firstUserMessage = textBlock.text.slice(0, 50)
+              rawMessage = textBlock.text
+            }
+          }
+          if (rawMessage) {
+            // Clean the message (format commands)
+            const cleaned = cleanUserMessage(rawMessage)
+            if (cleaned) {
+              firstUserMessage = cleaned.slice(0, 50)
             }
           }
         }
@@ -353,6 +378,7 @@ interface ClaudeMessage {
   type: 'user' | 'assistant' | 'queue-operation' | string
   uuid: string
   timestamp: string
+  isMeta?: boolean // Meta messages (caveats, system info) should be hidden from UI
   message?: {
     role: 'user' | 'assistant'
     content: string | ContentBlock[]
@@ -400,6 +426,11 @@ export function readClaudeSession(cwd: string, sessionId: string): ChatMessage[]
   for (const line of lines) {
     try {
       const entry = JSON.parse(line) as ClaudeMessage
+
+      // Skip meta messages (caveats, system info)
+      if (entry.isMeta) {
+        continue
+      }
 
       // Only process user and assistant messages
       if (entry.type !== 'user' && entry.type !== 'assistant') {
