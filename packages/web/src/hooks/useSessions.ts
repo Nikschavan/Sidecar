@@ -151,11 +151,12 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
         })
       })
 
-      if (res.ok) {
-        // Permission requests will come via WebSocket
-        // Just refresh messages to get Claude's response
-        await fetchMessages()
+      if (!res.ok) {
+        console.error('Failed to send message:', res.status)
+        // Remove optimistic message on error
+        setMessages(prev => prev.filter(m => m.id !== tempId))
       }
+      // Don't call fetchMessages - WebSocket handles real-time updates
     } catch (e) {
       console.error('Failed to send message:', e)
       // Remove optimistic message on error
@@ -163,7 +164,7 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
     } finally {
       setSending(false)
     }
-  }, [apiUrl, currentSessionId, sending, fetchMessages, settings])
+  }, [apiUrl, currentSessionId, sending, settings])
 
   // Select a project
   const selectProject = useCallback((projectPath: string) => {
@@ -447,6 +448,13 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
               if (exists) {
                 // Update existing message (for streaming updates)
                 return prev.map(m => m.id === msg.message.id ? msg.message : m)
+              }
+              // When receiving a real user message, remove any temp messages
+              // This prevents duplicates from optimistic updates
+              const incomingMsg = msg.message as ChatMessage
+              if (incomingMsg.role === 'user') {
+                const filtered = prev.filter(m => !m.id?.startsWith('temp-'))
+                return [...filtered, msg.message]
               }
               return [...prev, msg.message]
             })
