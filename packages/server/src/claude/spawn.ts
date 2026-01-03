@@ -7,7 +7,7 @@
 
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createInterface } from 'node:readline'
-import type { ClaudeMessage } from '@sidecar/shared'
+import type { ClaudeMessage, ImageBlock } from '@sidecar/shared'
 
 /**
  * Permission request from Claude (control_request message)
@@ -27,7 +27,7 @@ export interface PermissionRequest {
 export interface ClaudeProcess {
   child: ChildProcessWithoutNullStreams
   sessionId: string | null
-  send: (text: string) => void
+  send: (text: string, images?: ImageBlock[]) => void
   sendPermissionResponse: (requestId: string, allow: boolean, updatedInput?: Record<string, unknown>) => void
   onMessage: (callback: (msg: ClaudeMessage) => void) => void
   onPermissionRequest: (callback: (req: PermissionRequest) => void) => void
@@ -53,7 +53,8 @@ export function spawnClaude(options: SpawnOptions): ClaudeProcess {
     '--output-format', 'stream-json',
     '--input-format', 'stream-json',
     '--permission-prompt-tool', 'stdio',
-    '--verbose'
+    '--verbose',
+    '--chrome',
   ]
 
   if (options.resume) {
@@ -153,12 +154,32 @@ export function spawnClaude(options: SpawnOptions): ClaudeProcess {
     get sessionId() {
       return sessionId
     },
-    send(text: string) {
+    send(text: string, images?: ImageBlock[]) {
+      // Build content array for multimodal messages
+      let content: string | Array<{ type: string; text?: string; source?: ImageBlock['source'] }>
+
+      if (images && images.length > 0) {
+        // Multimodal message: array of content blocks
+        content = []
+        if (text) {
+          content.push({ type: 'text', text })
+        }
+        for (const img of images) {
+          content.push({
+            type: 'image',
+            source: img.source
+          })
+        }
+      } else {
+        // Text-only message: simple string
+        content = text
+      }
+
       const msg = {
         type: 'user',
         message: {
           role: 'user',
-          content: text
+          content
         }
       }
       child.stdin.write(JSON.stringify(msg) + '\n')

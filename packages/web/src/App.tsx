@@ -3,6 +3,7 @@ import { useSessions } from './hooks/useSessions'
 import { HomeScreen } from './screens/HomeScreen'
 import { ChatScreen } from './screens/ChatScreen'
 import type { SessionSettings } from './components/InputBar'
+import type { ImageBlock } from '@sidecar/shared'
 
 // Get API URL from current location or default to localhost
 const API_URL = window.location.hostname === 'localhost'
@@ -124,9 +125,9 @@ function App() {
     navigate('/new')
   }
 
-  const handleCreateSession = async (text: string) => {
-    console.log('[App] handleCreateSession called with:', text.slice(0, 30))
-    const sessionId = await createSession(text)
+  const handleCreateSession = async (text: string, images?: ImageBlock[]) => {
+    console.log('[App] handleCreateSession called with:', text.slice(0, 30), images?.length ?? 0, 'images')
+    const sessionId = await createSession(text, images)
     console.log('[App] createSession returned:', sessionId)
     if (sessionId) {
       console.log('[App] Navigating to session:', sessionId)

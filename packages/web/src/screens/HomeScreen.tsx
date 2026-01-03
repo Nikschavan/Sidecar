@@ -46,8 +46,6 @@ export function HomeScreen({
   onSelectSession,
   onNewSession
 }: HomeScreenProps) {
-  const currentProjectName = projects.find(p => p.path === currentProject)?.name || 'Select project'
-
   return (
     <div className="h-full flex flex-col bg-claude-bg overflow-x-hidden">
       {/* Header */}

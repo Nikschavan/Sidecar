@@ -86,7 +86,7 @@ export function createSessionManager(): SessionManager {
           addMessage(sessionId, {
             id: randomUUID(),
             role: 'assistant',
-            content: content.text,
+            content: [content.text],
             timestamp: new Date().toISOString()
           })
         }
@@ -186,7 +186,7 @@ export function createSessionManager(): SessionManager {
       addMessage(sessionId, {
         id: randomUUID(),
         role: 'user',
-        content: text,
+        content: [text],
         timestamp: new Date().toISOString()
       })
 

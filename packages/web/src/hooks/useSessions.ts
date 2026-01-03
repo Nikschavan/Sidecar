@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { ChatMessage } from '@sidecar/shared'
+import type { ChatMessage, ImageBlock, ContentBlock } from '@sidecar/shared'
 import type { SessionSettings } from '../components/InputBar'
 
 interface Project {
@@ -13,6 +13,7 @@ interface Session {
   name: string | null
   modifiedAt: string
   size: number
+  model: string | null
 }
 
 interface ProjectsResponse {
@@ -113,17 +114,22 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
   }, [apiUrl, currentSessionId])
 
   // Send message to current session
-  const sendMessage = useCallback(async (text: string) => {
+  const sendMessage = useCallback(async (text: string, images?: ImageBlock[]) => {
     if (!currentSessionId || sending) return
 
     setSending(true)
-    
+
+    // Build content array with text and images
+    const content: ContentBlock[] = []
+    if (text) content.push(text)
+    if (images) content.push(...images)
+
     // Optimistically add user message
     const tempId = 'temp-' + String(Math.random()).slice(2)
     const tempMessage: ChatMessage = {
       id: tempId,
       role: 'user',
-      content: text,
+      content,
       timestamp: new Date().toISOString()
     }
     setMessages(prev => [...prev, tempMessage])
@@ -134,6 +140,7 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text,
+          images,
           permissionMode: settings?.permissionMode !== 'default' ? settings?.permissionMode : undefined,
           model: settings?.model !== 'default' ? settings?.model : undefined
         })
@@ -162,18 +169,23 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
   }, [])
 
   // Create a new session with an initial message
-  const createSession = useCallback(async (text: string): Promise<string | null> => {
+  const createSession = useCallback(async (text: string, images?: ImageBlock[]): Promise<string | null> => {
     if (!currentProject || sending) return null
 
     setSending(true)
     setMessages([])
+
+    // Build content array with text and images
+    const content: ContentBlock[] = []
+    if (text) content.push(text)
+    if (images) content.push(...images)
 
     // Optimistically add user message
     const tempId = 'temp-' + String(Math.random()).slice(2)
     const tempMessage: ChatMessage = {
       id: tempId,
       role: 'user',
-      content: text,
+      content,
       timestamp: new Date().toISOString()
     }
     setMessages([tempMessage])
@@ -186,6 +198,7 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             text,
+            images,
             permissionMode: settings?.permissionMode !== 'default' ? settings?.permissionMode : undefined,
             model: settings?.model !== 'default' ? settings?.model : undefined
           })
@@ -293,7 +306,14 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
     }
   }, [pendingPermission])
 
+  // Track current session ID in a ref for use in WebSocket handlers
+  const currentSessionIdRef = useRef(currentSessionId)
+  useEffect(() => {
+    currentSessionIdRef.current = currentSessionId
+  }, [currentSessionId])
+
   // WebSocket connection for real-time permission requests
+  // Only reconnect when wsUrl changes, not on session changes
   useEffect(() => {
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
@@ -301,19 +321,20 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
     ws.onopen = () => {
       console.log('[useSessions] WebSocket connected')
       // If we have a current session, tell server to watch it
-      if (currentSessionId) {
-        ws.send(JSON.stringify({ type: 'watch_session', sessionId: currentSessionId }))
+      if (currentSessionIdRef.current) {
+        ws.send(JSON.stringify({ type: 'watch_session', sessionId: currentSessionIdRef.current }))
       }
     }
 
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data)
+        const sessionId = currentSessionIdRef.current
 
         // Handle permission request from server
         if (msg.type === 'permission_request') {
           // Only show permission dialogs for the current session
-          if (msg.sessionId === currentSessionId) {
+          if (msg.sessionId === sessionId) {
             console.log('[useSessions] Permission request:', msg.toolName, msg.input, 'source:', msg.source)
             setPendingPermission({
               requestId: msg.requestId,
@@ -325,13 +346,13 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
               source: msg.source
             })
           } else {
-            console.log('[useSessions] Ignoring permission request for different session:', msg.sessionId, '(current:', currentSessionId, ')')
+            console.log('[useSessions] Ignoring permission request for different session:', msg.sessionId, '(current:', sessionId, ')')
           }
         }
 
         // Handle permission resolved from server (permission was handled in terminal)
         if (msg.type === 'permission_resolved') {
-          if (msg.sessionId === currentSessionId) {
+          if (msg.sessionId === sessionId) {
             console.log('[useSessions] Permission resolved (handled in terminal):', msg.toolId)
             setPendingPermission(prev => {
               // Clear if the resolved tool matches our pending permission
@@ -345,11 +366,11 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
 
         // Handle claude message - append to existing messages instead of full refetch
         // Only update if message is for the current session
-        if (msg.type === 'claude_message' && msg.message && (!msg.sessionId || msg.sessionId === currentSessionId)) {
+        if (msg.type === 'claude_message' && msg.message && (!msg.sessionId || msg.sessionId === sessionId)) {
           // Check if the pending permission's tool call now has a result
           // This means permission was handled elsewhere (e.g., terminal)
           setPendingPermission(prev => {
-            if (prev && prev.sessionId === currentSessionId && prev.toolUseId) {
+            if (prev && prev.sessionId === sessionId && prev.toolUseId) {
               // Check if this message contains the tool call with a result
               const toolCalls = msg.message.toolCalls as Array<{ id: string; result?: string }> | undefined
               const resolvedTool = toolCalls?.find(t => t.id === prev.toolUseId && t.result !== undefined)
@@ -387,7 +408,15 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
     return () => {
       ws.close()
     }
-  }, [wsUrl, currentSessionId])
+  }, [wsUrl])
+
+  // Send watch_session message when session changes (without reconnecting WebSocket)
+  useEffect(() => {
+    const ws = wsRef.current
+    if (ws && ws.readyState === WebSocket.OPEN && currentSessionId) {
+      ws.send(JSON.stringify({ type: 'watch_session', sessionId: currentSessionId }))
+    }
+  }, [currentSessionId])
 
   // Initial fetch - load projects
   useEffect(() => {

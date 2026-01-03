@@ -8,7 +8,7 @@
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { ChatMessage } from '@sidecar/shared'
+import type { ChatMessage, ContentBlock as SharedContentBlock, ImageBlock } from '@sidecar/shared'
 
 const CLAUDE_DIR = join(homedir(), '.claude', 'projects')
 
@@ -340,6 +340,13 @@ interface ContentBlock {
   tool_use_id?: string
   content?: string
   is_error?: boolean
+  // Image fields (for type: 'image')
+  source?: {
+    type: 'base64' | 'url'
+    media_type: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'
+    data?: string
+    url?: string
+  }
 }
 
 interface ClaudeMessage {
@@ -429,18 +436,31 @@ export function readClaudeSession(cwd: string, sessionId: string): ChatMessage[]
 
       seenIds.add(entry.uuid)
 
-      // Extract text content
-      let text = ''
+      // Extract content blocks (text and images)
+      const contentBlocks: SharedContentBlock[] = []
       let toolCalls: ChatMessage['toolCalls'] = undefined
 
       if (typeof entry.message.content === 'string') {
-        text = entry.message.content
+        contentBlocks.push(entry.message.content)
       } else if (Array.isArray(entry.message.content)) {
-        // Join all text blocks
-        const textBlocks = entry.message.content.filter(
-          (c) => c.type === 'text' && c.text
-        )
-        text = textBlocks.map((c) => c.text).join('\n')
+        // Process all content blocks
+        for (const block of entry.message.content) {
+          if (block.type === 'text' && block.text) {
+            contentBlocks.push(block.text)
+          } else if (block.type === 'image' && block.source) {
+            // Add image block
+            const imageBlock: ImageBlock = {
+              type: 'image',
+              source: {
+                type: block.source.type,
+                media_type: block.source.media_type,
+                data: block.source.data,
+                url: block.source.url
+              }
+            }
+            contentBlocks.push(imageBlock)
+          }
+        }
 
         // Extract all tool calls with their results
         const tools = entry.message.content.filter((c) => c.type === 'tool_use')
@@ -458,20 +478,20 @@ export function readClaudeSession(cwd: string, sessionId: string): ChatMessage[]
         }
       }
 
-      // Skip user messages that are only tool results (no visible text)
-      if (entry.type === 'user' && !text) {
+      // Skip user messages that are only tool results (no visible content)
+      if (entry.type === 'user' && contentBlocks.length === 0) {
         continue
       }
 
-      // Skip messages with no text and no tool calls
-      if (!text && !toolCalls) {
+      // Skip messages with no content and no tool calls
+      if (contentBlocks.length === 0 && !toolCalls) {
         continue
       }
 
       messages.push({
         id: entry.uuid,
         role: entry.message.role,
-        content: text,
+        content: contentBlocks,
         timestamp: entry.timestamp,
         toolCalls
       })

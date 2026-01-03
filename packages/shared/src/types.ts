@@ -98,14 +98,48 @@ export interface ToolCall {
   isError?: boolean
 }
 
+// Image block (from Claude's vision API)
+export interface ImageBlock {
+  type: 'image'
+  source: {
+    type: 'base64' | 'url'
+    media_type: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'
+    data?: string // base64 encoded data (for type: 'base64')
+    url?: string // URL (for type: 'url')
+  }
+}
+
+// Content block that can be text or image
+export type ContentBlock = string | ImageBlock
+
 // Chat message (simplified for UI)
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
-  content: string
+  content: ContentBlock[] // Array of text strings and/or image blocks
   timestamp: string
   // Tool calls made by Claude (Read, Edit, Bash, AskUserQuestion, etc.)
   toolCalls?: ToolCall[]
+}
+
+// Helper to get text content from a message
+export function getTextContent(message: ChatMessage): string {
+  // Handle undefined, null, or non-array content
+  if (!message.content) return ''
+  if (typeof message.content === 'string') return message.content
+  if (!Array.isArray(message.content)) return ''
+
+  return message.content
+    .filter((block): block is string => typeof block === 'string')
+    .join('\n')
+}
+
+// Helper to get image blocks from a message
+export function getImageBlocks(message: ChatMessage): ImageBlock[] {
+  // Handle undefined, null, or non-array content
+  if (!message.content || !Array.isArray(message.content)) return []
+
+  return message.content.filter((block): block is ImageBlock => typeof block === 'object' && block !== null && block.type === 'image')
 }
 
 // Helper to check if message has pending question

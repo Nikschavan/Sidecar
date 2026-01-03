@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
+import type { ImageBlock } from '@sidecar/shared'
+import { useImagePicker } from '../hooks/useImagePicker'
 
 export interface SlashCommand {
   command: string
@@ -14,7 +16,7 @@ export interface SessionSettings {
 }
 
 interface InputBarProps {
-  onSend: (text: string) => void
+  onSend: (text: string, images?: ImageBlock[]) => void
   onAbort?: () => void
   disabled?: boolean
   placeholder?: string
@@ -64,6 +66,17 @@ export function InputBar({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const badgesRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Use custom image picker hook
+  const {
+    images,
+    removeImage,
+    clearImages,
+    getImageBlocks,
+    processFiles,
+    hasImages
+  } = useImagePicker()
 
   const handlePermissionModeChange = (mode: PermissionMode) => {
     onSettingsChange?.({ ...settings, permissionMode: mode })
@@ -139,9 +152,12 @@ export function InputBar({
 
   const handleSubmit = () => {
     const trimmed = text.trim()
-    if (trimmed && !disabled) {
-      onSend(trimmed)
+    const hasContent = trimmed || hasImages
+    if (hasContent && !disabled) {
+      const imageBlocks = hasImages ? getImageBlocks() : undefined
+      onSend(trimmed, imageBlocks)
       setText('')
+      clearImages()
     }
   }
 
@@ -150,6 +166,34 @@ export function InputBar({
     setShowSlashCommands(false)
     textareaRef.current?.focus()
   }
+
+  // iOS Safari fix: Use native addEventListener instead of React's onChange
+  // React's synthetic events don't fire reliably for file inputs on iOS Safari
+  useEffect(() => {
+    const fileInput = fileInputRef.current
+
+    const handleChange = (e: Event) => {
+      console.log('[InputBar] Native change event fired')
+      const target = e.target as HTMLInputElement
+      const files = target.files
+      console.log('[InputBar] Files from native event:', files?.length)
+
+      // Capture files before reset
+      const filesToProcess = files ? Array.from(files) : []
+      target.value = ''
+
+      if (filesToProcess.length > 0) {
+        processFiles(filesToProcess)
+      }
+    }
+
+    // Attach native listener
+    fileInput?.addEventListener('change', handleChange)
+
+    return () => {
+      fileInput?.removeEventListener('change', handleChange)
+    }
+  }, [processFiles])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     // Handle slash command navigation
@@ -175,7 +219,6 @@ export function InputBar({
         return
       }
     }
-
   }
 
   return (
@@ -313,6 +356,29 @@ export function InputBar({
       {/* Input area */}
       <div className="max-w-3xl mx-auto">
         <div className="bg-claude-surface rounded-2xl px-4 py-3">
+          {/* Attached images preview */}
+          {images.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-3">
+              {images.map((img) => (
+                <div key={img.id} className="relative group">
+                  <img
+                    src={img.preview}
+                    alt="Attached"
+                    className="w-16 h-16 object-cover rounded-lg border border-claude-border"
+                  />
+                  <button
+                    onClick={() => removeImage(img.id)}
+                    className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
           <textarea
             ref={textareaRef}
             value={text}
@@ -324,9 +390,37 @@ export function InputBar({
             className="w-full bg-transparent text-[15px] text-claude-text resize-none focus:outline-none placeholder-claude-text-muted disabled:opacity-50"
           />
 
+          {/* Hidden file input - using opacity:0 instead of display:none for iOS Safari compatibility */}
+          {/* Note: onChange handled via native addEventListener in useEffect for iOS Safari */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept=".jpg,.jpeg,.png,.gif,.webp,.heic,.heif"
+            style={{
+              position: 'absolute',
+              opacity: 0,
+              width: 0,
+              height: 0,
+              pointerEvents: 'none'
+            }}
+          />
+
           {/* Toolbar */}
           <div className="flex items-center justify-between mt-2">
             <div className="flex items-center gap-1">
+              {/* Image upload button */}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-claude-bg-lighter text-claude-text-muted hover:text-claude-text transition-colors cursor-pointer"
+                title="Attach image"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              </button>
+
               {/* Abort button - only show when processing */}
               {isProcessing && onAbort && (
                 <button
@@ -344,7 +438,7 @@ export function InputBar({
             {/* Send button */}
             <button
               onClick={handleSubmit}
-              disabled={disabled || !text.trim()}
+              disabled={disabled || (!text.trim() && !hasImages)}
               className="w-10 h-10 flex items-center justify-center bg-claude-text-muted rounded-full hover:bg-claude-text disabled:opacity-40 disabled:hover:bg-claude-text-muted transition-colors shrink-0"
             >
               <svg className="w-5 h-5 text-claude-bg" fill="none" stroke="currentColor" viewBox="0 0 24 24">

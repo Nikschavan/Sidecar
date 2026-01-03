@@ -1,4 +1,4 @@
-import type { ChatMessage } from '@sidecar/shared'
+import type { ChatMessage, ImageBlock } from '@sidecar/shared'
 import { ChatView } from '../components/ChatView'
 import { InputBar, type SlashCommand, type SessionSettings } from '../components/InputBar'
 import { AskUserQuestion } from '../components/AskUserQuestion'
@@ -27,7 +27,7 @@ interface ChatScreenProps {
   pendingPermission: PendingPermission | null
   slashCommands?: SlashCommand[]
   settings?: SessionSettings
-  onSend: (text: string) => void
+  onSend: (text: string, images?: ImageBlock[]) => void
   onBack: () => void
   onPermissionResponse: (allow: boolean, options?: { answers?: Record<string, string[]>; allowAll?: boolean; customMessage?: string }) => void
   onSettingsChange?: (settings: SessionSettings) => void

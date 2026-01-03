@@ -133,16 +133,16 @@ const httpServer = createServer(async (req, res) => {
     for await (const chunk of req) {
       body += chunk
     }
-    const { text, permissionMode, model } = JSON.parse(body || '{}')
-    if (!text) {
+    const { text, images, permissionMode, model } = JSON.parse(body || '{}')
+    if (!text && (!images || images.length === 0)) {
       res.writeHead(400, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ error: 'text is required' }))
+      res.end(JSON.stringify({ error: 'text or images required' }))
       return
     }
 
-    console.log(`[server] Creating new Claude session in ${projectPath}: ${text.slice(0, 50)}...`)
+    console.log(`[server] Creating new Claude session in ${projectPath}: ${(text || '').slice(0, 50)}...`)
     console.log(`[server] NEW SESSION ENDPOINT HIT - timestamp: ${Date.now()}`)
-    console.log(`[server] Settings: permissionMode=${permissionMode || 'default'}, model=${model || 'default'}`)
+    console.log(`[server] Settings: permissionMode=${permissionMode || 'default'}, model=${model || 'default'}, images=${images?.length || 0}`)
 
     // Spawn Claude WITHOUT --resume to create a new session
     const responses: unknown[] = []
@@ -202,8 +202,8 @@ const httpServer = createServer(async (req, res) => {
       }
     })
 
-    // Send the initial message
-    claude.send(text)
+    // Send the initial message with optional images
+    claude.send(text || '', images)
 
     // Handle cleanup when Claude finishes
     let finished = false
@@ -364,10 +364,10 @@ const httpServer = createServer(async (req, res) => {
     for await (const chunk of req) {
       body += chunk
     }
-    const { text, permissionMode, model } = JSON.parse(body || '{}')
-    if (!text) {
+    const { text, images, permissionMode, model } = JSON.parse(body || '{}')
+    if (!text && (!images || images.length === 0)) {
       res.writeHead(400, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ error: 'text is required' }))
+      res.end(JSON.stringify({ error: 'text or images required' }))
       return
     }
 
@@ -379,8 +379,8 @@ const httpServer = createServer(async (req, res) => {
       return
     }
 
-    console.log(`[server] Sending to Claude session ${sessionId} in ${projectPath}: ${text.slice(0, 50)}...`)
-    console.log(`[server] Settings: permissionMode=${permissionMode || 'default'}, model=${model || 'default'}`)
+    console.log(`[server] Sending to Claude session ${sessionId} in ${projectPath}: ${(text || '').slice(0, 50)}...`)
+    console.log(`[server] Settings: permissionMode=${permissionMode || 'default'}, model=${model || 'default'}, images=${images?.length || 0}`)
 
     // Spawn Claude with --resume to continue the session
     const responses: unknown[] = []
@@ -430,8 +430,8 @@ const httpServer = createServer(async (req, res) => {
       }
     })
 
-    // Send the message
-    claude.send(text)
+    // Send the message with optional images
+    claude.send(text || '', images)
 
     // Wait for Claude to finish (result message or timeout)
     let resolvePromise: () => void
