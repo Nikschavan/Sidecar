@@ -94,6 +94,7 @@ function App() {
     messages,
     loading,
     sending,
+    isProcessing,
     pendingPermission,
     slashCommands,
     sendMessage,
@@ -101,6 +102,7 @@ function App() {
     selectProject,
     selectSession,
     respondToPermission,
+    abortSession,
     clearForNewSession
   } = useSessions(API_URL, settings, handleModelChange)
 
@@ -145,6 +147,7 @@ function App() {
         messages={messages}
         loading={false}
         sending={sending}
+        isProcessing={isProcessing}
         pendingPermission={null}
         slashCommands={slashCommands}
         settings={settings}
@@ -152,6 +155,7 @@ function App() {
         onBack={handleBack}
         onPermissionResponse={respondToPermission}
         onSettingsChange={handleSettingsChange}
+        onAbort={abortSession}
       />
     )
   }
@@ -165,6 +169,7 @@ function App() {
         messages={messages}
         loading={loading}
         sending={sending}
+        isProcessing={isProcessing}
         pendingPermission={pendingPermission}
         slashCommands={slashCommands}
         settings={settings}
@@ -172,6 +177,7 @@ function App() {
         onBack={handleBack}
         onPermissionResponse={respondToPermission}
         onSettingsChange={handleSettingsChange}
+        onAbort={abortSession}
       />
     )
   }

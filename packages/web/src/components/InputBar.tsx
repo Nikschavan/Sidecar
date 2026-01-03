@@ -420,31 +420,31 @@ export function InputBar({
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
               </button>
-
-              {/* Abort button - only show when processing */}
-              {isProcessing && onAbort && (
-                <button
-                  onClick={onAbort}
-                  className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-claude-bg-lighter text-claude-text-muted hover:text-red-400 transition-colors"
-                  title="Abort"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5.25 7.5A2.25 2.25 0 017.5 5.25h9a2.25 2.25 0 012.25 2.25v9a2.25 2.25 0 01-2.25 2.25h-9a2.25 2.25 0 01-2.25-2.25v-9z" />
-                  </svg>
-                </button>
-              )}
             </div>
 
-            {/* Send button */}
-            <button
-              onClick={handleSubmit}
-              disabled={disabled || (!text.trim() && !hasImages)}
-              className="w-10 h-10 flex items-center justify-center bg-claude-text-muted rounded-full hover:bg-claude-text disabled:opacity-40 disabled:hover:bg-claude-text-muted transition-colors shrink-0"
-            >
-              <svg className="w-5 h-5 text-claude-bg" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
-              </svg>
-            </button>
+            {/* Abort button - show when processing, replaces send button */}
+            {isProcessing && onAbort ? (
+              <button
+                onClick={onAbort}
+                className="w-10 h-10 flex items-center justify-center bg-claude-btn-stop hover:bg-claude-bg-lighter rounded-full transition-colors shrink-0"
+                title="Stop (Ctrl+C)"
+              >
+                <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                </svg>
+              </button>
+            ) : (
+              /* Send button - orange disabled, coral active */
+              <button
+                onClick={handleSubmit}
+                disabled={disabled || (!text.trim() && !hasImages)}
+                className="w-10 h-10 flex items-center justify-center rounded-full transition-colors shrink-0 bg-claude-btn-active hover:bg-claude-accent-hover disabled:bg-claude-btn-disabled disabled:hover:bg-claude-btn-disabled"
+              >
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+                </svg>
+              </button>
+            )}
           </div>
         </div>
       </div>

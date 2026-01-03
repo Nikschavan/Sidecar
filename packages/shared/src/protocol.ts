@@ -75,6 +75,12 @@ export interface ServerPermissionResolvedMessage {
   toolId: string
 }
 
+// Session was aborted (Ctrl+C equivalent)
+export interface ServerSessionAbortedMessage {
+  type: 'session_aborted'
+  sessionId: string
+}
+
 export type ServerMessage =
   | ServerConnectedMessage
   | ServerHistoryMessage
@@ -87,6 +93,7 @@ export type ServerMessage =
   | ServerClaudeMessageMessage
   | ServerPermissionRequestMessage
   | ServerPermissionResolvedMessage
+  | ServerSessionAbortedMessage
 
 // Client -> Server messages
 export interface ClientSendMessage {
@@ -153,6 +160,12 @@ export interface ClientWatchSessionMessage {
   sessionId: string
 }
 
+// Abort current Claude processing (like Ctrl+C)
+export interface ClientAbortSessionMessage {
+  type: 'abort_session'
+  sessionId: string
+}
+
 export type ClientMessage =
   | ClientSendMessage
   | ClientSubscribeMessage
@@ -165,3 +178,4 @@ export type ClientMessage =
   | ClientTakeOverMessage
   | ClientPermissionResponseMessage
   | ClientWatchSessionMessage
+  | ClientAbortSessionMessage

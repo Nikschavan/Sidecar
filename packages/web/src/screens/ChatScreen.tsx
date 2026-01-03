@@ -24,6 +24,7 @@ interface ChatScreenProps {
   messages: ChatMessage[]
   loading: boolean
   sending: boolean
+  isProcessing: boolean
   pendingPermission: PendingPermission | null
   slashCommands?: SlashCommand[]
   settings?: SessionSettings
@@ -31,6 +32,7 @@ interface ChatScreenProps {
   onBack: () => void
   onPermissionResponse: (allow: boolean, options?: { answers?: Record<string, string[]>; allowAll?: boolean; customMessage?: string }) => void
   onSettingsChange?: (settings: SessionSettings) => void
+  onAbort?: () => void
 }
 
 export function ChatScreen({
@@ -39,13 +41,15 @@ export function ChatScreen({
   messages,
   loading,
   sending,
+  isProcessing,
   pendingPermission,
   slashCommands,
   settings,
   onSend,
   onBack,
   onPermissionResponse,
-  onSettingsChange
+  onSettingsChange,
+  onAbort
 }: ChatScreenProps) {
   return (
     <div className="h-full flex flex-col bg-claude-bg overflow-x-hidden">
@@ -96,6 +100,8 @@ export function ChatScreen({
       {/* Input bar */}
       <InputBar
         onSend={onSend}
+        onAbort={onAbort}
+        isProcessing={isProcessing}
         disabled={sending || !!pendingPermission}
         placeholder={pendingPermission ? "Respond to permission request above..." : "Type a message..."}
         slashCommands={slashCommands}

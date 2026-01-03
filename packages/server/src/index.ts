@@ -288,12 +288,17 @@ const httpServer = createServer(async (req, res) => {
     // Try to find which project this session belongs to
     const projectPath = findSessionProject(sessionId) || CWD
     const messages = readClaudeSession(projectPath, sessionId)
+    // Check if session is actively being processed (file modified recently or has active process)
+    const hasActiveProcess = activeProcesses.has(sessionId)
+    const fileIsActive = isSessionActive(projectPath, sessionId, 5) // 5 second threshold
+    const isActive = hasActiveProcess || fileIsActive
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({
       sessionId,
       projectPath,
       messageCount: messages.length,
-      messages
+      messages,
+      isActive
     }))
     return
   }
@@ -872,6 +877,30 @@ const ws = createWSServer(wss, {
             })
           }
         }
+      }
+      return
+    }
+
+    // Handle abort request from web client (like Ctrl+C)
+    if (message.type === 'abort_session') {
+      const { sessionId } = message as { sessionId: string }
+      console.log(`[server] Abort request for session ${sessionId}`)
+
+      // Kill active process if exists
+      const activeProcess = activeProcesses.get(sessionId)
+      if (activeProcess) {
+        console.log(`[server] Killing active Claude process for session ${sessionId}`)
+        activeProcess.claude.child.kill('SIGINT') // Send Ctrl+C signal
+        activeProcesses.delete(sessionId)
+        activeProcess.resolve()
+
+        // Broadcast abort confirmation
+        ws.broadcast({
+          type: 'session_aborted',
+          sessionId
+        })
+      } else {
+        console.log(`[server] No active process found for session ${sessionId}`)
       }
       return
     }

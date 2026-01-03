@@ -30,6 +30,7 @@ interface SessionMessagesResponse {
   projectPath: string
   messageCount: number
   messages: ChatMessage[]
+  isActive?: boolean
 }
 
 interface PendingPermission {
@@ -59,6 +60,7 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
+  const [isProcessing, setIsProcessing] = useState(false) // Tracks when Claude is actively working
   const [pendingPermission, setPendingPermission] = useState<PendingPermission | null>(null)
   const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([])
   const wsRef = useRef<WebSocket | null>(null)
@@ -120,6 +122,7 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
     if (!currentSessionId || sending) return
 
     setSending(true)
+    setIsProcessing(true)
 
     // Build content array with text and images
     const content: ContentBlock[] = []
@@ -175,6 +178,7 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
     if (!currentProject || sending) return null
 
     setSending(true)
+    setIsProcessing(true)
     setMessages([])
 
     // Build content array with text and images
@@ -255,6 +259,7 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
     setCurrentSessionId(sessionId)
     setMessages([])
     setPendingPermission(null)
+    setIsProcessing(false)
 
     // Fetch messages for this session directly (don't rely on useEffect)
     setLoading(true)
@@ -262,6 +267,11 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
       const res = await fetch(apiUrl + '/api/claude/sessions/' + sessionId)
       const data: SessionMessagesResponse = await res.json()
       setMessages(data.messages)
+      // Set isProcessing if server indicates session is active
+      if (data.isActive) {
+        console.log('[useSessions] Session is active, showing stop button')
+        setIsProcessing(true)
+      }
     } catch (e) {
       console.error('Failed to fetch messages:', e)
     } finally {
@@ -278,6 +288,23 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
       ws.send(JSON.stringify({ type: 'watch_session', sessionId }))
     }
   }, [apiUrl, fetchSlashCommands, fetchSessionMetadata])
+
+  // Abort current Claude processing (like Ctrl+C)
+  const abortSession = useCallback(() => {
+    if (!currentSessionId) return
+
+    const ws = wsRef.current
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      console.log('[useSessions] Sending abort request for session:', currentSessionId)
+      ws.send(JSON.stringify({
+        type: 'abort_session',
+        sessionId: currentSessionId
+      }))
+      // Optimistically clear sending/processing state
+      setSending(false)
+      setIsProcessing(false)
+    }
+  }, [currentSessionId])
 
   // Send permission response via WebSocket
   const respondToPermission = useCallback(async (allow: boolean, options?: { answers?: Record<string, string[]>; allowAll?: boolean }) => {
@@ -379,9 +406,26 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
             }
           }
 
+          // Handle session aborted (Ctrl+C equivalent)
+          if (msg.type === 'session_aborted') {
+            if (msg.sessionId === sessionId) {
+              console.log('[useSessions] Session aborted:', msg.sessionId)
+              setSending(false)
+              setIsProcessing(false)
+              setPendingPermission(null)
+            }
+          }
+
           // Handle claude message - append to existing messages instead of full refetch
           // Only update if message is for the current session
           if (msg.type === 'claude_message' && msg.message && (!msg.sessionId || msg.sessionId === sessionId)) {
+            // Check if Claude finished processing (result message type)
+            const claudeMsg = msg.message as { type?: string }
+            if (claudeMsg.type === 'result') {
+              console.log('[useSessions] Claude finished processing (result message)')
+              setIsProcessing(false)
+            }
+
             // Check if the pending permission's tool call now has a result
             // This means permission was handled elsewhere (e.g., terminal)
             setPendingPermission(prev => {
@@ -481,6 +525,7 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
     messages,
     loading,
     sending,
+    isProcessing,
     pendingPermission,
     slashCommands,
     sendMessage,
@@ -488,6 +533,7 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
     selectProject,
     selectSession,
     respondToPermission,
+    abortSession,
     clearForNewSession,
     refresh: fetchMessages
   }

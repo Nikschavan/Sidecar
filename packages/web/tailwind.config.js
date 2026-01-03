@@ -20,8 +20,12 @@ export default {
           accent: '#c96442',
           'accent-hover': '#d97a5a',
           'tool-name': '#e07a5f',
-          'user-bubble': '#3d3630',
+          'user-bubble': '#1f1d1b',
           coral: '#e07a5f',
+          // Button colors matching Claude app
+          'btn-disabled': '#a89080',
+          'btn-active': '#c96442',
+          'btn-stop': '#1f1d1b',
         }
       },
       fontFamily: {
