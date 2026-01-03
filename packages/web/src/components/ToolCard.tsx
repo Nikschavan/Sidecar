@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
+import { diffLines } from 'diff'
 
 interface ToolCall {
   id: string
@@ -157,62 +158,108 @@ function AskUserQuestionView({ input, result }: { input: unknown; result?: strin
   )
 }
 
-// Render diff-style content for Edit tool
+// Max lines to show before truncating in diff view
+const MAX_DIFF_LINES = 12
+
+// Render diff-style content for Edit tool using jsdiff library
 function DiffView({ oldString, newString, expanded, onToggle }: {
   oldString?: string
   newString?: string
   expanded: boolean
   onToggle: () => void
 }) {
-  // Generate simple diff lines
-  const oldLines = oldString?.split('\n') || []
-  const newLines = newString?.split('\n') || []
+  const { diffParts, totalLines } = useMemo(() => {
+    const parts = diffLines(oldString || '', newString || '')
+    let lineCount = 0
 
-  const diffLines: Array<{ type: 'remove' | 'add' | 'context'; content: string; lineNum: number }> = []
+    // Count total lines across all parts
+    for (const part of parts) {
+      const lines = part.value.split('\n')
+      if (lines.length > 0 && lines[lines.length - 1] === '') {
+        lineCount += lines.length - 1
+      } else {
+        lineCount += lines.length
+      }
+    }
 
-  // Show removed lines (old_string)
-  oldLines.forEach((line, i) => {
-    diffLines.push({ type: 'remove', content: line, lineNum: i + 1 })
-  })
+    return { diffParts: parts, totalLines: lineCount }
+  }, [oldString, newString])
 
-  // Show added lines (new_string)
-  newLines.forEach((line, i) => {
-    diffLines.push({ type: 'add', content: line, lineNum: i + 1 })
-  })
+  const hasMore = totalLines > MAX_DIFF_LINES
 
-  const visibleLines = expanded ? diffLines : diffLines.slice(0, MAX_LINES)
-  const hasMore = diffLines.length > MAX_LINES
+  // Track how many lines we've rendered
+  let renderedLines = 0
 
   return (
     <div className="mt-2">
-      <div className="rounded-lg bg-claude-bg-lighter overflow-hidden border border-claude-border">
-        <div className="text-xs font-mono">
-          {visibleLines.map((line, i) => (
-            <div
-              key={i}
-              className={`flex ${
-                line.type === 'remove'
-                  ? 'bg-red-950/30'
-                  : line.type === 'add'
-                  ? 'bg-green-950/30'
-                  : ''
-              }`}
-            >
-              <span className="w-8 text-right pr-2 text-claude-text-dim select-none shrink-0 border-r border-claude-border">
-                {line.lineNum}
-              </span>
-              <span className={`w-4 text-center shrink-0 ${
-                line.type === 'remove' ? 'text-red-400' : line.type === 'add' ? 'text-green-400' : ''
-              }`}>
-                {line.type === 'remove' ? '-' : line.type === 'add' ? '+' : ' '}
-              </span>
-              <span className={`pl-1 pr-2 whitespace-pre-wrap break-all min-w-0 ${
-                line.type === 'remove' ? 'text-red-300' : line.type === 'add' ? 'text-green-300' : 'text-claude-text-muted'
-              }`}>
-                {line.content}
-              </span>
-            </div>
-          ))}
+      <div className="rounded-lg overflow-hidden border border-claude-border bg-claude-bg-lighter">
+        <div className="font-mono text-xs">
+          {diffParts.map((part, i) => {
+            // If we've already rendered enough lines and not expanded, skip
+            if (!expanded && renderedLines >= MAX_DIFF_LINES) {
+              return null
+            }
+
+            // Split the part into lines, removing trailing empty line
+            const lines = part.value.split('\n')
+            if (lines.length > 0 && lines[lines.length - 1] === '') {
+              lines.pop()
+            }
+
+            // Determine how many lines from this part to show
+            const linesToShow = expanded
+              ? lines
+              : lines.slice(0, Math.max(0, MAX_DIFF_LINES - renderedLines))
+
+            renderedLines += linesToShow.length
+
+            if (linesToShow.length === 0) return null
+
+            const prefix = part.added ? '+' : part.removed ? '-' : ' '
+
+            return (
+              <div
+                key={i}
+                className={
+                  part.added
+                    ? 'bg-green-950/40'
+                    : part.removed
+                    ? 'bg-red-950/40'
+                    : ''
+                }
+              >
+                {linesToShow.map((line, j) => (
+                  <div
+                    key={j}
+                    className="flex"
+                  >
+                    <span
+                      className={`w-6 text-center shrink-0 select-none ${
+                        part.added
+                          ? 'text-green-400 bg-green-950/60'
+                          : part.removed
+                          ? 'text-red-400 bg-red-950/60'
+                          : 'text-claude-text-dim'
+                      }`}
+                    >
+                      {prefix}
+                    </span>
+                    <span
+                      className={`pl-2 pr-2 whitespace-pre-wrap break-all min-w-0 ${
+                        part.added
+                          ? 'text-green-300'
+                          : part.removed
+                          ? 'text-red-300'
+                          : 'text-claude-text-muted'
+                      }`}
+                    >
+                      {line}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )
+          })}
         </div>
       </div>
       {hasMore && (
@@ -220,7 +267,7 @@ function DiffView({ oldString, newString, expanded, onToggle }: {
           onClick={onToggle}
           className="text-xs text-claude-text-muted hover:text-claude-text mt-1.5 w-full text-center py-1"
         >
-          {expanded ? 'Show less' : `Show full diff (${diffLines.length - MAX_LINES} more lines)`}
+          {expanded ? 'Show less' : `Show more (${totalLines - MAX_DIFF_LINES} more lines)`}
         </button>
       )}
     </div>
