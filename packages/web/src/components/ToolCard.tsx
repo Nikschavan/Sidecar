@@ -75,10 +75,86 @@ function getToolDetail(tool: ToolCall): string | null {
       return getString(input, ['description']) || getString(input, ['prompt'])
     }
 
+    case 'AskUserQuestion': {
+      // Don't show detail for AskUserQuestion - handled in renderToolContent
+      return null
+    }
+
     default: {
       return getString(input, ['file_path', 'path', 'command', 'pattern', 'query'])
     }
   }
+}
+
+// Parse AskUserQuestion result to extract answers
+interface AskUserQuestionAnswer {
+  question: string
+  header: string
+  answer: string
+}
+
+function parseAskUserQuestionResult(input: unknown, result: string | undefined): AskUserQuestionAnswer[] {
+  if (!result || !input || typeof input !== 'object') return []
+
+  const inp = input as Record<string, unknown>
+  const questions = Array.isArray(inp.questions) ? inp.questions : []
+
+  // Result format from Claude: "User has answered your questions: \"Question\"=\"Answer\", \"Question2\"=\"Answer2\", ..."
+  // Parse this string format to extract question-answer pairs
+  const answersMap = new Map<string, string>()
+
+  // Match patterns like "Question text"="Answer text"
+  const regex = /"([^"]+)"="([^"]*)"/g
+  let match
+  while ((match = regex.exec(result)) !== null) {
+    answersMap.set(match[1], match[2])
+  }
+
+  const parsed: AskUserQuestionAnswer[] = []
+
+  questions.forEach((q: Record<string, unknown>) => {
+    const questionText = (q.question as string) || ''
+    const header = (q.header as string) || ''
+
+    // Try to find answer by question text
+    const answer = answersMap.get(questionText)
+
+    if (answer !== undefined) {
+      parsed.push({
+        question: questionText,
+        header: header,
+        answer: answer
+      })
+    }
+  })
+
+  return parsed
+}
+
+// Render AskUserQuestion with answers
+function AskUserQuestionView({ input, result }: { input: unknown; result?: string }) {
+  const answers = parseAskUserQuestionResult(input, result)
+
+  if (answers.length === 0) {
+    // No answers yet - show pending state
+    return null
+  }
+
+  return (
+    <div className="mt-2 font-mono text-sm">
+      {answers.map((item, i) => (
+        <div key={i} className="flex items-start gap-1 text-claude-text-muted">
+          <span className="select-none">└</span>
+          <span className="text-claude-text-dim">·</span>
+          <span className="flex-1">
+            <span>{item.header || item.question}</span>
+            <span className="mx-1">→</span>
+            <span className="text-claude-coral">{item.answer}</span>
+          </span>
+        </div>
+      ))}
+    </div>
+  )
 }
 
 // Render diff-style content for Edit tool
@@ -228,6 +304,10 @@ export function ToolCard({ tool }: ToolCardProps) {
           )
         }
         return null
+      }
+
+      case 'AskUserQuestion': {
+        return <AskUserQuestionView input={input} result={tool.result} />
       }
 
       default:
