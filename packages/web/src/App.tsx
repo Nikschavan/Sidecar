@@ -164,6 +164,7 @@ function AppContent() {
       <ChatScreen
         sessionId={route.sessionId}
         sessionName={currentSession?.name ?? null}
+        projectPath={currentProject}
         messages={messages}
         loading={loading}
         sending={sending}
