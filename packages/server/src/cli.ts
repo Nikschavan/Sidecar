@@ -187,9 +187,9 @@ async function showStatus(): Promise<void> {
   }
 
   // Load token
+  const authFile = join(SIDECAR_DIR, 'auth.json')
   let token = '<unknown>'
   try {
-    const authFile = join(SIDECAR_DIR, 'auth.json')
     if (existsSync(authFile)) {
       const auth = JSON.parse(readFileSync(authFile, 'utf-8'))
       token = auth.token
