@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useSessions } from './hooks/useSessions'
 import { HomeScreen } from './screens/HomeScreen'
 import { ChatScreen } from './screens/ChatScreen'
+import { NewSessionScreen } from './screens/NewSessionScreen'
 import type { SessionSettings } from './components/InputBar'
 import type { ImageBlock } from '@sidecar/shared'
 
@@ -127,35 +128,30 @@ function App() {
     navigate('/new')
   }
 
-  const handleCreateSession = async (text: string, images?: ImageBlock[]) => {
+  const handleCreateSession = async (text: string, images?: ImageBlock[]): Promise<string | null> => {
     console.log('[App] handleCreateSession called with:', text.slice(0, 30), images?.length ?? 0, 'images')
     const sessionId = await createSession(text, images)
     console.log('[App] createSession returned:', sessionId)
     if (sessionId) {
       console.log('[App] Navigating to session:', sessionId)
       navigate(`/session/${sessionId}`)
+      return sessionId
     } else {
       console.error('[App] No sessionId returned')
+      return null
     }
   }
 
   if (route.screen === 'new') {
     return (
-      <ChatScreen
-        sessionId="new"
-        sessionName="New Session"
-        messages={messages}
-        loading={false}
-        sending={sending}
-        isProcessing={isProcessing}
-        pendingPermission={null}
-        slashCommands={slashCommands}
+      <NewSessionScreen
+        projects={projects}
+        currentProject={currentProject}
         settings={settings}
-        onSend={handleCreateSession}
-        onBack={handleBack}
-        onPermissionResponse={respondToPermission}
+        onProjectChange={selectProject}
+        onCreateSession={handleCreateSession}
         onSettingsChange={handleSettingsChange}
-        onAbort={abortSession}
+        onBack={handleBack}
       />
     )
   }

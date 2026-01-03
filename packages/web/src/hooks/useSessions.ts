@@ -417,8 +417,8 @@ export function useSessions(apiUrl: string, settings?: SessionSettings, onModelC
           }
 
           // Handle claude message - append to existing messages instead of full refetch
-          // Only update if message is for the current session
-          if (msg.type === 'claude_message' && msg.message && (!msg.sessionId || msg.sessionId === sessionId)) {
+          // Only update if message is for the current session (strict matching)
+          if (msg.type === 'claude_message' && msg.message && msg.sessionId === sessionId) {
             // Check if Claude finished processing (result message type)
             const claudeMsg = msg.message as { type?: string }
             if (claudeMsg.type === 'result') {
