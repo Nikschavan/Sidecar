@@ -109,12 +109,8 @@ export function HomeScreen({
               <button
                 key={session.id}
                 onClick={() => onSelectSession(session.id)}
-                className="w-full text-left py-3 px-3 flex items-start gap-3 group hover:bg-claude-bg-light rounded-lg transition-colors"
+                className="w-full text-left py-3 px-3 group hover:bg-claude-bg-light rounded-lg transition-colors"
               >
-                {/* Status dot */}
-                <div className="w-3 h-3 rounded-full bg-green-500 mt-1.5 shrink-0" />
-
-                {/* Content */}
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-2">
                     <div className="text-[15px] font-medium text-claude-text truncate">
