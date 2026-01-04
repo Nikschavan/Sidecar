@@ -147,19 +147,27 @@ export class ClaudeService {
 
   /**
    * Start a timeout for a permission request
-   * Auto-denies after PERMISSION_TIMEOUT_MS if no response received
+   * For spawned processes: kills the process after timeout
+   * For hook-based permissions: keeps pending for re-display
    */
   private startPermissionTimeout(sessionId: string, requestId: string, toolName: string): void {
     // Clear any existing timeout for this request
     this.clearPermissionTimeout(requestId)
 
     const timeout = setTimeout(() => {
-      console.log(`[ClaudeService] Permission timeout for ${toolName} (${requestId}) - auto-denying`)
+      console.log(`[ClaudeService] Permission timeout for ${toolName} (${requestId})`)
       this.permissionTimeouts.delete(requestId)
 
-      // Auto-deny the permission
-      const denied = this.respondToPermission(sessionId, requestId, false)
-      if (denied) {
+      const activeProcess = this.activeProcesses.get(sessionId)
+      if (activeProcess) {
+        // Spawned process - kill it to stop the stuck process
+        console.log(`[ClaudeService] Killing timed-out spawned process for session ${sessionId}`)
+        activeProcess.claude.child.kill('SIGTERM')
+        this.activeProcesses.delete(sessionId)
+        this.emitPermissionTimeout(sessionId, requestId, toolName)
+      } else {
+        // Hook-based permission - keep it pending for re-display when user opens session
+        console.log(`[ClaudeService] Hook permission timeout - keeping pending for re-display`)
         this.emitPermissionTimeout(sessionId, requestId, toolName)
       }
     }, ClaudeService.PERMISSION_TIMEOUT_MS)
@@ -770,6 +778,7 @@ export class ClaudeService {
 
       if (pendingHook && !currentPendingIds.has(pendingHook.toolUseId)) {
         console.log(`[ClaudeService] Permission resolved for session ${sessionId}`)
+        this.clearPermissionTimeout(pendingHook.toolUseId)
         this.pendingHookPermissions.delete(sessionId)
         this.emitPermissionResolved(sessionId, pendingHook.toolUseId)
       }
@@ -777,6 +786,7 @@ export class ClaudeService {
       // Check for resolved AskUserQuestion
       for (const [toolId, entry] of this.pendingAskUserQuestions) {
         if (entry.sessionId === sessionId && !currentPendingIds.has(toolId)) {
+          this.clearPermissionTimeout(toolId)
           this.pendingAskUserQuestions.delete(toolId)
           this.emitPermissionResolved(sessionId, toolId)
         }
