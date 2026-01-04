@@ -60,3 +60,21 @@ sessionsRoutes.post('/:sessionId/messages', async (c) => {
   sessionsService.sendMessage(sessionId, text)
   return c.json({ ok: true })
 })
+
+// Abort session (stop Claude processing)
+sessionsRoutes.post('/:sessionId/abort', async (c) => {
+  const sessionId = c.req.param('sessionId')
+
+  // Import claudeService dynamically to avoid circular deps
+  const { claudeService } = await import('../services/claude.service.js')
+  const success = claudeService.abortSession(sessionId)
+
+  if (success) {
+    // Notify SSE clients about the abort
+    const { sseServer } = await import('../sse/server.js')
+    sseServer.sendToSession(sessionId, 'session_aborted', { sessionId })
+    return c.json({ ok: true })
+  }
+
+  return c.json({ error: 'No active process found for session' }, 404)
+})

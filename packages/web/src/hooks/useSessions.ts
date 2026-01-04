@@ -10,7 +10,7 @@ import { useSessionMessages } from './useSessionMessages'
 import { useSessionMetadata } from './useSessionMetadata'
 import { useSendMessage } from './useSendMessage'
 import { useCreateSession } from './useCreateSession'
-import { useSessionWebSocket, type PendingPermission } from './useSessionWebSocket'
+import { useSessionSSE, type PendingPermission } from './useSessionSSE'
 import type { SessionSettings } from '../components/InputBar'
 import type { ImageBlock, ChatMessage } from '@sidecar/shared'
 
@@ -86,8 +86,8 @@ export function useSessions(
   const sendMessageMutation = useSendMessage(apiUrl, currentSessionId, settings)
   const createSessionMutation = useCreateSession(apiUrl, currentProject, settings)
 
-  // WebSocket integration
-  const { sendPermissionResponse, sendAbortRequest } = useSessionWebSocket({
+  // SSE integration (replaced WebSocket)
+  const { sendPermissionResponse, sendAbortRequest } = useSessionSSE({
     apiUrl,
     currentSessionId,
     onPermissionRequest: (permission) => {

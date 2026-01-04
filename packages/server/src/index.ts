@@ -1,32 +1,21 @@
 /**
  * Sidecar Server
  *
- * Main entry point - HTTP (Hono) + WebSocket server for Claude sessions
+ * Main entry point - HTTP server with SSE for real-time updates
  */
 
 import { createServer } from 'node:http'
-import { WebSocketServer } from 'ws'
-import { Hono } from 'hono'
+import { Readable } from 'node:stream'
 import { createApp } from './app.js'
-import { createWSServer } from './ws/server.js'
+import { sseServer } from './sse/server.js'
 import { claudeService } from './services/claude.service.js'
 import { sessionsService } from './services/sessions.service.js'
 import { setupClaudeHooks, removeClaudeHooks } from './claude/hooks.js'
 import { loadOrCreateToken, rotateToken, getAuthFilePath } from './auth/token.js'
 import { formatNetworkUrls } from './utils/network.js'
 import { getOrCreateVapidKeys, PushService } from './push/index.js'
-import {
-  handleSubscribe,
-  handleSend,
-  handleWatchSession,
-  handleAbortSession,
-  handlePermissionResponse,
-  handleDisconnect
-} from './ws/handlers/index.js'
-import type { ClientMessage, ServerMessage } from '@sidecar/shared'
 
 const PORT = parseInt(process.env.PORT || '3456', 10)
-const CWD = process.cwd()
 
 // Parse CLI args
 const args = process.argv.slice(2)
@@ -51,7 +40,7 @@ claudeService.killOrphanedProcesses()
 // Create the Hono app with push support
 const app = createApp(vapidKeys.publicKey)
 
-// Create HTTP server that delegates to Hono
+// Create HTTP server that delegates to Hono with streaming support
 const httpServer = createServer(async (req, res) => {
   // Convert Node request to Fetch Request
   const url = new URL(req.url || '/', `http://localhost:${PORT}`)
@@ -75,76 +64,59 @@ const httpServer = createServer(async (req, res) => {
   // Get response from Hono
   const response = await app.fetch(request)
 
-  // Send response
-  res.writeHead(response.status, Object.fromEntries(response.headers.entries()))
-  const responseBody = await response.text()
-  res.end(responseBody)
-})
-
-// Create WebSocket server attached to HTTP server with a dedicated path
-// Using a /ws path makes it easier to configure reverse proxies for WebSocket
-const wss = new WebSocketServer({ server: httpServer, path: '/ws' })
-
-const ws = createWSServer(wss, {
-  onConnection(client) {
-    // Session is null on initial connect, set when client subscribes
-    client.send({
-      type: 'connected',
-      session: null as any
+  // Check if this is a streaming response (SSE)
+  const contentType = response.headers.get('content-type') || ''
+  if (contentType.includes('text/event-stream') && response.body) {
+    // For SSE, filter out headers that Node handles automatically
+    const headers: Record<string, string> = {}
+    response.headers.forEach((value, key) => {
+      // Skip headers that Node handles for streaming
+      const lowerKey = key.toLowerCase()
+      if (lowerKey !== 'transfer-encoding' && lowerKey !== 'content-length') {
+        headers[key] = value
+      }
     })
-  },
 
-  onMessage(client, message: ClientMessage) {
-    console.log(`[server] Received from ${client.id}:`, message.type)
+    // Write headers (Node will add Transfer-Encoding: chunked automatically)
+    res.writeHead(response.status, headers)
 
-    if (message.type === 'subscribe') {
-      handleSubscribe(client, message as { sessionId: string })
-      return
+    // Pipe the stream to the response
+    const reader = response.body.getReader()
+
+    const pump = async (): Promise<void> => {
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          // Write chunk and flush immediately for SSE
+          res.write(value)
+        }
+      } catch (err) {
+        // Client disconnected or stream error
+        console.log('[server] SSE stream ended')
+      } finally {
+        res.end()
+      }
     }
 
-    if (message.type === 'send') {
-      handleSend(client, message as { text: string })
-      return
-    }
-
-    if (message.type === 'watch_session') {
-      handleWatchSession(client, message as { sessionId: string })
-      return
-    }
-
-    if (message.type === 'abort_session') {
-      handleAbortSession(client, message as { sessionId: string }, (msg) => ws.broadcast(msg as ServerMessage))
-      return
-    }
-
-    if (message.type === 'permission_response') {
-      handlePermissionResponse(client, message as {
-        sessionId: string
-        requestId: string
-        allow: boolean
-        allowAll?: boolean
-        toolName?: string
-        updatedInput?: Record<string, unknown>
-        source?: 'file' | 'process'
-      })
-      return
-    }
-  },
-
-  onClose(client) {
-    handleDisconnect(client.id)
+    // Start pumping (don't await - let it run async)
+    pump()
+  } else {
+    // For regular responses, send headers and body
+    res.writeHead(response.status, Object.fromEntries(response.headers.entries()))
+    const responseBody = await response.text()
+    res.end(responseBody)
   }
 })
 
-// Set up service event handlers to broadcast to WebSocket clients
+// Set up service event handlers to broadcast to SSE clients
 claudeService.onMessage((sessionId, message) => {
-  ws.broadcast({ type: 'claude_message', message, sessionId })
+  sseServer.sendToSession(sessionId, 'claude_message', { message, sessionId })
 })
 
 claudeService.onPermissionRequest((sessionId, permission) => {
-  // Broadcast via WebSocket
-  ws.broadcast({
-    type: 'permission_request',
+  // Broadcast via SSE
+  sseServer.sendToSession(sessionId, 'permission_request', {
     sessionId,
     toolName: permission.toolName,
     toolUseId: permission.toolUseId,
@@ -170,16 +142,14 @@ claudeService.onPermissionRequest((sessionId, permission) => {
 })
 
 claudeService.onPermissionResolved((sessionId, toolId) => {
-  ws.broadcast({
-    type: 'permission_resolved',
+  sseServer.sendToSession(sessionId, 'permission_resolved', {
     sessionId,
     toolId
   })
 })
 
 claudeService.onPermissionTimeout((sessionId, requestId, toolName) => {
-  ws.broadcast({
-    type: 'permission_timeout',
+  sseServer.sendToSession(sessionId, 'permission_timeout', {
     sessionId,
     requestId,
     toolName,
@@ -189,11 +159,11 @@ claudeService.onPermissionTimeout((sessionId, requestId, toolName) => {
 
 // Set up session manager event handlers
 sessionsService.onMessage((sessionId, message) => {
-  ws.broadcast({ type: 'message', message, sessionId })
+  sseServer.sendToSession(sessionId, 'message', { message, sessionId })
 })
 
 sessionsService.onStateChange((sessionId, state) => {
-  ws.broadcast({ type: 'state_change', state, sessionId })
+  sseServer.sendToSession(sessionId, 'state_change', { state, sessionId })
 })
 
 sessionsService.onSessionReady((sessionId, claudeSessionId) => {
@@ -218,8 +188,8 @@ httpServer.listen(PORT, () => {
 Web UI:
 ${formatNetworkUrls(PORT, 'http')}
 
-WebSocket:
-${formatNetworkUrls(PORT, 'ws').split('\n').map(line => line.includes('://') ? line.replace(/\/$/, '') + '/ws' : line).join('\n')}
+SSE Events:
+${formatNetworkUrls(PORT, 'http').split('\n').map(line => line.includes('://') ? line.replace(/\/$/, '') + '/api/events/:sessionId' : line).join('\n')}
 
 Authentication:
   Token: ${AUTH_TOKEN}

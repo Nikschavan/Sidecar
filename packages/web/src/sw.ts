@@ -6,6 +6,11 @@ declare const self: ServiceWorkerGlobalScope
 // Precache manifest (injected by vite-plugin-pwa)
 precacheAndRoute(self.__WB_MANIFEST)
 
+// Skip waiting to activate new service worker immediately
+self.addEventListener('install', () => {
+  self.skipWaiting()
+})
+
 // Push notification payload type
 interface PushPayload {
   title: string

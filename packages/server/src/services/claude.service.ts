@@ -615,6 +615,53 @@ export class ClaudeService {
   }
 
   /**
+   * Get all pending permissions for a session (for reconnection)
+   * Returns both hook-based and file-based pending permissions
+   */
+  getPendingPermissions(sessionId: string): Array<{
+    toolName: string
+    toolUseId: string
+    requestId: string
+    input: Record<string, unknown>
+    source: 'hook' | 'file'
+  }> {
+    const permissions: Array<{
+      toolName: string
+      toolUseId: string
+      requestId: string
+      input: Record<string, unknown>
+      source: 'hook' | 'file'
+    }> = []
+
+    // Check for hook-based permissions
+    const pendingHook = this.pendingHookPermissions.get(sessionId)
+    if (pendingHook && (Date.now() - pendingHook.timestamp < 300000)) {
+      permissions.push({
+        toolName: pendingHook.toolName,
+        toolUseId: pendingHook.toolUseId,
+        requestId: pendingHook.toolUseId,
+        input: pendingHook.toolInput,
+        source: 'hook'
+      })
+    }
+
+    // Check for file-based AskUserQuestion permissions
+    for (const [toolId, entry] of this.pendingAskUserQuestions) {
+      if (entry.sessionId === sessionId) {
+        permissions.push({
+          toolName: entry.tool.name,
+          toolUseId: entry.tool.id,
+          requestId: entry.tool.id,
+          input: entry.tool.input as Record<string, unknown>,
+          source: 'file'
+        })
+      }
+    }
+
+    return permissions
+  }
+
+  /**
    * Stop watching a session
    */
   unwatchSession(clientId: string, sessionId: string): void {
