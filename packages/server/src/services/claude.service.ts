@@ -4,6 +4,7 @@
  * Manages Claude processes, permissions, and session watching
  */
 
+import { execSync } from 'node:child_process'
 import { spawnClaude, type ClaudeProcess, type PermissionRequest } from '../claude/spawn.js'
 import {
   findSessionProject,
@@ -86,10 +87,96 @@ export class ClaudeService {
   // Track sessions being approved via resume
   private sessionsBeingApproved = new Set<string>()
 
+  // Track permission timeouts (requestId -> timeout handle)
+  private permissionTimeouts = new Map<string, NodeJS.Timeout>()
+
+  // Permission timeout in milliseconds (60 seconds)
+  private static readonly PERMISSION_TIMEOUT_MS = 60000
+
   // Event handlers
   private messageHandlers: MessageHandler[] = []
   private permissionHandlers: PermissionHandler[] = []
   private permissionResolvedHandlers: PermissionResolvedHandler[] = []
+  private permissionTimeoutHandlers: Array<(sessionId: string, requestId: string, toolName: string) => void> = []
+
+  /**
+   * Kill any orphaned Claude processes from previous Sidecar runs
+   * Called on startup to clean up processes that may be stuck waiting for permissions
+   */
+  killOrphanedProcesses(): void {
+    try {
+      // Find Claude processes with --permission-prompt-tool stdio (spawned by Sidecar)
+      const result = execSync(
+        'pgrep -f "claude.*--permission-prompt-tool stdio" || true',
+        { encoding: 'utf-8' }
+      ).trim()
+
+      if (result) {
+        const pids = result.split('\n').filter(Boolean)
+        console.log(`[ClaudeService] Found ${pids.length} orphaned Claude process(es), killing...`)
+        for (const pid of pids) {
+          try {
+            process.kill(parseInt(pid, 10), 'SIGTERM')
+            console.log(`[ClaudeService] Killed orphaned process ${pid}`)
+          } catch (err) {
+            // Process may have already exited
+            console.log(`[ClaudeService] Could not kill process ${pid}: ${(err as Error).message}`)
+          }
+        }
+      }
+    } catch (err) {
+      console.log(`[ClaudeService] Error checking for orphaned processes: ${(err as Error).message}`)
+    }
+  }
+
+  /**
+   * Register a permission timeout handler
+   */
+  onPermissionTimeout(handler: (sessionId: string, requestId: string, toolName: string) => void): void {
+    this.permissionTimeoutHandlers.push(handler)
+  }
+
+  /**
+   * Emit a permission timeout event
+   */
+  private emitPermissionTimeout(sessionId: string, requestId: string, toolName: string): void {
+    for (const handler of this.permissionTimeoutHandlers) {
+      handler(sessionId, requestId, toolName)
+    }
+  }
+
+  /**
+   * Start a timeout for a permission request
+   * Auto-denies after PERMISSION_TIMEOUT_MS if no response received
+   */
+  private startPermissionTimeout(sessionId: string, requestId: string, toolName: string): void {
+    // Clear any existing timeout for this request
+    this.clearPermissionTimeout(requestId)
+
+    const timeout = setTimeout(() => {
+      console.log(`[ClaudeService] Permission timeout for ${toolName} (${requestId}) - auto-denying`)
+      this.permissionTimeouts.delete(requestId)
+
+      // Auto-deny the permission
+      const denied = this.respondToPermission(sessionId, requestId, false)
+      if (denied) {
+        this.emitPermissionTimeout(sessionId, requestId, toolName)
+      }
+    }, ClaudeService.PERMISSION_TIMEOUT_MS)
+
+    this.permissionTimeouts.set(requestId, timeout)
+  }
+
+  /**
+   * Clear a permission timeout
+   */
+  private clearPermissionTimeout(requestId: string): void {
+    const timeout = this.permissionTimeouts.get(requestId)
+    if (timeout) {
+      clearTimeout(timeout)
+      this.permissionTimeouts.delete(requestId)
+    }
+  }
 
   /**
    * Register a message handler
@@ -125,6 +212,9 @@ export class ClaudeService {
    * Emit a permission request event
    */
   private emitPermissionRequest(sessionId: string, permission: Parameters<PermissionHandler>[1]): void {
+    // Start timeout for this permission request
+    this.startPermissionTimeout(sessionId, permission.requestId, permission.toolName)
+
     for (const handler of this.permissionHandlers) {
       handler(sessionId, permission)
     }
@@ -342,6 +432,9 @@ export class ClaudeService {
     } = {}
   ): boolean {
     console.log(`[ClaudeService] Permission response: ${allow ? 'ALLOW' : 'DENY'}`)
+
+    // Clear the timeout since we're responding
+    this.clearPermissionTimeout(requestId)
 
     // Track as allowed if user clicked "Allow All"
     if (allow && options.allowAll && options.toolName) {

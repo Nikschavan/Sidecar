@@ -40,6 +40,9 @@ if (shouldRotateToken) {
 // Load or create auth token
 const AUTH_TOKEN = loadOrCreateToken()
 
+// Kill any orphaned Claude processes from previous Sidecar runs
+claudeService.killOrphanedProcesses()
+
 // Create HTTP server that delegates to Hono
 const httpServer = createServer(async (req, res) => {
   // Convert Node request to Fetch Request
@@ -147,6 +150,16 @@ claudeService.onPermissionResolved((sessionId, toolId) => {
     type: 'permission_resolved',
     sessionId,
     toolId
+  })
+})
+
+claudeService.onPermissionTimeout((sessionId, requestId, toolName) => {
+  ws.broadcast({
+    type: 'permission_timeout',
+    sessionId,
+    requestId,
+    toolName,
+    message: `Permission request for ${toolName} timed out after 60 seconds`
   })
 })
 

@@ -68,6 +68,15 @@ export interface ServerSessionAbortedMessage {
   sessionId: string
 }
 
+// Permission request timed out (auto-denied after 60s)
+export interface ServerPermissionTimeoutMessage {
+  type: 'permission_timeout'
+  sessionId: string
+  requestId: string
+  toolName: string
+  message: string
+}
+
 export type ServerMessage =
   | ServerConnectedMessage
   | ServerHistoryMessage
@@ -78,6 +87,7 @@ export type ServerMessage =
   | ServerPermissionRequestMessage
   | ServerPermissionResolvedMessage
   | ServerSessionAbortedMessage
+  | ServerPermissionTimeoutMessage
 
 // Client -> Server messages
 export interface ClientSendMessage {
