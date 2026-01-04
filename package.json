@@ -18,7 +18,8 @@
     "typecheck": "pnpm -r typecheck",
     "clean": "pnpm -r clean",
     "test": "pnpm --filter @sidecar/server test",
-    "build:binary": "pnpm --filter @sidecar/server build:binary"
+    "build:binary": "pnpm --filter @sidecar/server build:binary",
+    "restartsidecar": "./packages/server/sidecar stop && ./packages/server/sidecar start"
   },
   "devDependencies": {
     "concurrently": "^9.0.0",
