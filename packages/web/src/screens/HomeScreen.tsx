@@ -54,7 +54,7 @@ export function HomeScreen({
     <div className="h-full flex flex-col bg-claude-bg overflow-x-hidden">
       {/* Header */}
       <header
-        className="px-4 max-w-2xl mx-auto w-full flex items-center justify-between"
+        className="fixed top-0 left-0 right-0 px-4 flex items-center justify-between bg-claude-bg/95 backdrop-blur-sm z-10"
         style={{ paddingTop: 'max(env(safe-area-inset-top), 16px)', paddingBottom: '12px' }}
       >
         <h1 className="text-lg font-medium text-claude-text">Sidecar</h1>
@@ -84,6 +84,9 @@ export function HomeScreen({
         )}
       </header>
 
+      {/* Spacer for fixed header */}
+      <div style={{ paddingTop: 'calc(max(env(safe-area-inset-top), 16px) + 48px)' }} />
+
       {/* Project dropdown */}
       <div className="px-4 pb-4 max-w-2xl mx-auto w-full">
         <ProjectDropdown
@@ -94,7 +97,7 @@ export function HomeScreen({
       </div>
 
       {/* Sessions list */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 max-w-2xl mx-auto w-full">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 pb-24 max-w-2xl mx-auto w-full">
         {!currentProject ? (
           <div className="flex items-center justify-center h-full text-claude-text-muted">
             Select a project to view sessions
@@ -132,16 +135,18 @@ export function HomeScreen({
 
       {/* New session button */}
       <div
-        className="px-4 pt-4 max-w-2xl mx-auto w-full"
+        className="fixed bottom-0 left-0 right-0 px-4 pt-4 bg-claude-bg/95 backdrop-blur-sm z-10"
         style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 16px)' }}
       >
-        <button
-          onClick={onNewSession}
-          disabled={!currentProject}
-          className="w-full bg-[#f5f3ef] text-[#2a2624] py-3.5 rounded-full text-[15px] font-medium hover:bg-[#ebe8e4] disabled:opacity-50 disabled:hover:bg-[#f5f3ef] transition-colors"
-        >
-          New session
-        </button>
+        <div className="max-w-2xl mx-auto">
+          <button
+            onClick={onNewSession}
+            disabled={!currentProject}
+            className="w-full bg-[#f5f3ef] text-[#2a2624] py-3.5 rounded-full text-[15px] font-medium hover:bg-[#ebe8e4] disabled:opacity-50 disabled:hover:bg-[#f5f3ef] transition-colors"
+          >
+            New session
+          </button>
+        </div>
       </div>
     </div>
   )

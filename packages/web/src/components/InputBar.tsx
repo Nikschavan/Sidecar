@@ -157,7 +157,7 @@ export function InputBar({
 
   return (
     <div
-      className="bg-claude-bg px-4 pt-2"
+      className="fixed bottom-0 left-0 right-0 bg-claude-bg/95 backdrop-blur-sm px-4 pt-2 z-10"
       style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 12px)' }}
     >
       {/* Permission Mode Panel */}

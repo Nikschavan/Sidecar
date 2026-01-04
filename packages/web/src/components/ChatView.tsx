@@ -190,7 +190,8 @@ export function ChatView({ messages, loading, sending, isProcessing }: ChatViewP
     <div
       ref={containerRef}
       onScroll={handleScroll}
-      className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6"
+      className="flex-1 overflow-y-auto overflow-x-hidden px-4 pb-40"
+      style={{ paddingTop: 'calc(max(env(safe-area-inset-top), 12px) + 48px)' }}
     >
       <div className="max-w-3xl mx-auto space-y-6">
         {messages.map((msg) => (

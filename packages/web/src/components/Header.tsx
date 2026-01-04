@@ -38,7 +38,7 @@ export function Header({ projects, currentProject, sessionId, status, onProjectC
 
   return (
     <header
-      className="bg-slate-800/80 backdrop-blur-sm border-b border-slate-700"
+      className="fixed bg-slate-800/80 backdrop-blur-sm border-b border-slate-700"
       style={{ paddingTop: 'max(env(safe-area-inset-top), 12px)', paddingBottom: '12px' }}
     >
       {/* Top row: Logo and status */}

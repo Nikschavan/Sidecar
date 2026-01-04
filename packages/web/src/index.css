@@ -10,17 +10,24 @@
   --sal: env(safe-area-inset-left);
 }
 
-html, body, #root {
+html {
   height: 100%;
-  overflow: hidden;
   background-color: #1a1816;
 }
 
 body {
+  /* height: 100%;
+  height: -webkit-fill-available; */
+  background-color: #1a1816;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   color: #e8e4df;
+}
+
+#root {
+  height: 100%;
+  background-color: #1a1816;
 }
 
 /* Custom scrollbar */
@@ -38,7 +45,7 @@ body {
 }
 
 /* Prevent horizontal scroll */
-html, body, #root {
+body, #root {
   overflow-x: hidden;
   max-width: 100vw;
 }

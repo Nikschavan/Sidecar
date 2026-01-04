@@ -100,10 +100,10 @@ export function NewSessionScreen({
   }
 
   return (
-    <div className="h-full flex flex-col bg-claude-bg overflow-x-hidden">
+    <div className="h-full flex flex-col bg-claude-bg overflow-x-hidden relative">
       {/* Header */}
       <header
-        className="px-4 flex items-center gap-3"
+        className="fixed top-0 left-0 right-0 px-4 flex items-center gap-3 bg-claude-bg/95 backdrop-blur-sm z-10"
         style={{ paddingTop: 'max(env(safe-area-inset-top), 12px)', paddingBottom: '12px' }}
       >
         <button
@@ -121,7 +121,10 @@ export function NewSessionScreen({
       </header>
 
       {/* Settings Form */}
-      <div className="flex-1 overflow-y-auto px-4">
+      <div
+        className="flex-1 overflow-y-auto px-4 pb-40"
+        style={{ paddingTop: 'calc(max(env(safe-area-inset-top), 12px) + 48px)' }}
+      >
         <div className="max-w-3xl mx-auto space-y-4">
           {/* Project Selection */}
           <div className="bg-claude-bg-light rounded-xl p-4">

@@ -96,10 +96,10 @@ export function ChatScreen({
   }
 
   return (
-    <div className="h-full flex flex-col bg-claude-bg overflow-x-hidden">
+    <div className="h-full flex flex-col bg-claude-bg overflow-x-hidden relative">
       {/* Header */}
       <header
-        className="px-4 flex items-center gap-3"
+        className="fixed top-0 left-0 right-0 px-4 flex items-center gap-3 bg-claude-bg/95 backdrop-blur-sm z-10"
         style={{ paddingTop: 'max(env(safe-area-inset-top), 12px)', paddingBottom: '12px' }}
       >
         <button
