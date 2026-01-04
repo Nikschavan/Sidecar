@@ -354,6 +354,7 @@ export class ClaudeService {
       console.log(`[ClaudeService] Added ${options.toolName} to allowed tools`)
     }
 
+    // Handle active process permission (spawned by Sidecar)
     const activeProcess = this.activeProcesses.get(sessionId)
     if (activeProcess) {
       activeProcess.claude.sendPermissionResponse(requestId, allow, options.updatedInput)
@@ -361,7 +362,82 @@ export class ClaudeService {
       return true
     }
 
+    // Handle hook-based permission (Claude running in terminal)
+    const pendingHook = this.pendingHookPermissions.get(sessionId)
+    if (pendingHook && allow) {
+      console.log(`[ClaudeService] Responding to hook permission via resume`)
+      this.respondToHookPermission(sessionId, pendingHook, options.updatedInput)
+      return true
+    }
+
+    console.log(`[ClaudeService] No active process or hook permission found for session ${sessionId}`)
     return false
+  }
+
+  /**
+   * Respond to a hook-based permission by resuming the session
+   * Used when Claude is running in a terminal (not spawned by Sidecar)
+   */
+  private respondToHookPermission(
+    sessionId: string,
+    pendingHook: PendingHookPermission,
+    updatedInput?: Record<string, unknown>
+  ): void {
+    const projectPath = findSessionProject(sessionId)
+    if (!projectPath) {
+      console.error(`[ClaudeService] Cannot find project for session ${sessionId}`)
+      return
+    }
+
+    console.log(`[ClaudeService] Approving ${pendingHook.toolName} via resume for session ${sessionId}`)
+
+    // Mark session as being approved to prevent re-detection during polling
+    this.sessionsBeingApproved.add(sessionId)
+
+    // Clear the pending hook permission
+    this.pendingHookPermissions.delete(sessionId)
+
+    // Spawn Claude with --resume to connect to the session
+    const claude = spawnClaude({
+      cwd: projectPath,
+      resume: sessionId,
+      onMessage: (msg) => {
+        console.log(`[ClaudeService] Resume approval message: type=${msg.type}`)
+        this.emitMessage(sessionId, msg)
+      },
+      onPermissionRequest: (permReq) => {
+        // Auto-approve any permission request that comes through during resume
+        console.log(`[ClaudeService] Resume: got permission request for ${permReq.toolName}, auto-approving`)
+        claude.sendPermissionResponse(permReq.requestId, true, permReq.input)
+      }
+    })
+
+    // Log stderr for debugging
+    claude.child.stderr?.on('data', (data: Buffer) => {
+      console.log(`[ClaudeService] Resume stderr: ${data.toString().trim()}`)
+    })
+
+    // Send a nudge message to trigger Claude to continue
+    // The resumed process may be waiting for input
+    setTimeout(() => {
+      console.log(`[ClaudeService] Sending continue nudge to resumed Claude`)
+      claude.send('continue')
+    }, 1000)
+
+    // Handle process exit
+    claude.onExit((code) => {
+      console.log(`[ClaudeService] Resume process exited with code ${code}`)
+      this.sessionsBeingApproved.delete(sessionId)
+    })
+
+    // Timeout after 30 seconds
+    setTimeout(() => {
+      if (this.sessionsBeingApproved.has(sessionId)) {
+        console.log(`[ClaudeService] Resume approval timeout - killing process`)
+        this.sessionsBeingApproved.delete(sessionId)
+        claude.child.kill()
+      }
+    }, 30000)
   }
 
   /**
@@ -525,6 +601,11 @@ export class ClaudeService {
    */
   pollWatchedSessions(): void {
     for (const [sessionId, watchedSession] of this.watchedSessions) {
+      // Skip if we're currently handling a permission approval via resume
+      if (this.sessionsBeingApproved.has(sessionId)) {
+        continue
+      }
+
       const { projectPath, lastPendingIds } = watchedSession
 
       let sessionData

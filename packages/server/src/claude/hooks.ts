@@ -30,6 +30,68 @@ interface ClaudeSettings {
   [key: string]: unknown
 }
 
+// Embedded hook script content (for binary distribution)
+const HOOK_SCRIPT_CONTENT = `#!/usr/bin/env node
+const http = require('http')
+
+const port = process.env.SIDECAR_PORT || 7865
+const host = process.env.SIDECAR_HOST || 'localhost'
+const token = process.env.SIDECAR_TOKEN || ''
+
+let data = ''
+process.stdin.setEncoding('utf8')
+process.stdin.on('data', chunk => { data += chunk })
+
+process.stdin.on('end', () => {
+  if (!data) { process.exit(0) }
+  try {
+    const hookData = JSON.parse(data)
+    const postData = JSON.stringify(hookData)
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(postData)
+    }
+    if (token) { headers['Authorization'] = 'Bearer ' + token }
+    const options = {
+      hostname: host, port: port, path: '/api/claude-hook',
+      method: 'POST', headers, timeout: 500
+    }
+    const req = http.request(options, (res) => {
+      res.on('data', () => {})
+      res.on('end', () => process.exit(0))
+    })
+    req.on('error', () => process.exit(0))
+    req.on('timeout', () => { req.destroy(); process.exit(0) })
+    req.write(postData)
+    req.end()
+  } catch (err) { process.exit(0) }
+})
+process.stdin.on('error', () => process.exit(0))
+`
+
+/**
+ * Get the hook script path, extracting it to ~/.sidecar if needed
+ */
+function getHookScriptPath(): string {
+  const sidecarDir = join(homedir(), '.sidecar')
+  const extractedPath = join(sidecarDir, 'sidecar-hook.cjs')
+
+  // Ensure .sidecar directory exists
+  if (!existsSync(sidecarDir)) {
+    mkdirSync(sidecarDir, { recursive: true })
+  }
+
+  // Always write the hook script to ensure it's up to date
+  try {
+    writeFileSync(extractedPath, HOOK_SCRIPT_CONTENT)
+    console.log(`[hooks] Extracted hook script to ${extractedPath}`)
+  } catch (err) {
+    console.error(`[hooks] Failed to extract hook script: ${(err as Error).message}`)
+  }
+
+  return extractedPath
+}
+
 /**
  * Set up Claude Code notification hooks to forward to Sidecar server
  */
@@ -37,10 +99,8 @@ export function setupClaudeHooks(sidecarPort: number, authToken?: string): void 
   const claudeDir = join(homedir(), '.claude')
   const settingsPath = join(claudeDir, 'settings.json')
 
-  // Path to the hook script (relative to the built dist folder)
-  // __dirname is dist/claude/, so go up one level to dist/, then into hooks/
-  // Uses .cjs extension to force CommonJS mode since package.json has "type": "module"
-  const hookScriptPath = join(__dirname, '..', 'hooks', 'sidecar-hook.cjs')
+  // Get hook script path (extracts to ~/.sidecar if running from binary)
+  const hookScriptPath = getHookScriptPath()
 
   // Ensure .claude directory exists
   if (!existsSync(claudeDir)) {
@@ -64,7 +124,7 @@ export function setupClaudeHooks(sidecarPort: number, authToken?: string): void 
   const envVars = `SIDECAR_PORT=${sidecarPort}${authToken ? ` SIDECAR_TOKEN=${authToken}` : ''}`
   const sidecarHook: ClaudeHook = {
     type: 'command',
-    command: `${envVars} node "${hookScriptPath}"`
+    command: `${envVars} node ${hookScriptPath}`
   }
 
   // Ensure hooks.Notification array exists
