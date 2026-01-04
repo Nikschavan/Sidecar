@@ -55,7 +55,8 @@ export function useSessionWebSocket({
   const onProcessingCompleteRef = useRef(onProcessingComplete)
   const onToolResolvedRef = useRef(onToolResolved)
 
-  const wsUrl = apiUrl.replace('http', 'ws')
+  // Convert HTTP URL to WebSocket URL and append /ws path
+  const wsUrl = apiUrl.replace('http', 'ws') + '/ws'
 
   // Keep refs in sync
   useEffect(() => {

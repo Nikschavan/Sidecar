@@ -61,9 +61,14 @@ function generateAssetFile(): void {
     const urlPath = '/' + relativePath.replace(/\\/g, '/')
     const importPath = `../../../web/dist/${relativePath.replace(/\\/g, '/')}`
     const mimeType = getMimeType(filePath)
+    const ext = extname(filePath).toLowerCase()
 
     imports.push(`import asset${index} from '${importPath}' with { type: 'file' };`)
-    assets.push(`  { path: '${urlPath}', file: asset${index}, mimeType: '${mimeType}' },`)
+
+    // For JSON files, TypeScript infers the JSON object type instead of string
+    // Bun's { type: 'file' } returns a file path string at runtime, so we cast it
+    const fileValue = ext === '.json' ? `asset${index} as unknown as string` : `asset${index}`
+    assets.push(`  { path: '${urlPath}', file: ${fileValue}, mimeType: '${mimeType}' },`)
 
     console.log(`  ${urlPath} → ${mimeType}`)
   })

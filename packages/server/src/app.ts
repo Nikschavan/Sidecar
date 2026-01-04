@@ -4,7 +4,7 @@
 
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { routes } from './routes/index.js'
+import { createRoutes } from './routes/index.js'
 import { authMiddleware } from './middleware/auth.js'
 import { embeddedAssetsMiddleware } from './web/serve-embedded.js'
 
@@ -12,13 +12,13 @@ import { embeddedAssetsMiddleware } from './web/serve-embedded.js'
  * Create a new Hono app instance
  * Using a factory function allows creating fresh instances for testing
  */
-export function createApp(): Hono {
+export function createApp(vapidPublicKey: string): Hono {
   const app = new Hono()
 
   // CORS middleware
   app.use('*', cors({
     origin: '*',
-    allowMethods: ['GET', 'POST', 'OPTIONS'],
+    allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
     allowHeaders: ['Content-Type', 'Authorization']
   }))
 
@@ -30,6 +30,7 @@ export function createApp(): Hono {
   app.use('/api/*', authMiddleware)
 
   // Mount all routes
+  const routes = createRoutes(vapidPublicKey)
   app.route('/', routes)
 
   // 404 handler
@@ -45,6 +46,3 @@ export function createApp(): Hono {
 
   return app
 }
-
-// Default app instance for production use
-export const app = createApp()

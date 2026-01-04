@@ -37,11 +37,14 @@ async function loadAssetMap(): Promise<Map<string, EmbeddedAsset> | null> {
   }
 
   try {
-    const { embeddedAssets } = await import('./embeddedAssets.generated.js')
-    assetMap = new Map(embeddedAssets.map((asset: EmbeddedAsset) => [asset.path, asset]))
+    // Dynamic import - this file only exists in compiled binary
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mod: any = await import('./embeddedAssets.generated.js')
+    const embeddedAssets = mod.embeddedAssets as EmbeddedAsset[]
+    assetMap = new Map(embeddedAssets.map((asset) => [asset.path, asset]))
     console.log(`[web] Loaded ${assetMap.size} embedded assets`)
     return assetMap
-  } catch (error) {
+  } catch {
     console.log('[web] Embedded assets not found - web UI will not be served')
     return null
   }
