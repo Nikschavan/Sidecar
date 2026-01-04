@@ -2,8 +2,6 @@ import { useState, useRef, useEffect } from 'react'
 import type { ChatMessage, ImageBlock } from '@sidecar/shared'
 import { ChatView } from '../components/ChatView'
 import { InputBar, type SessionSettings } from '../components/InputBar'
-import { AskUserQuestion } from '../components/AskUserQuestion'
-import { PermissionDialog } from '../components/PermissionDialog'
 
 interface PendingPermission {
   requestId: string
@@ -199,31 +197,15 @@ export function ChatScreen({
         </div>
       )}
 
-      {/* Chat messages */}
+      {/* Chat messages with permission dialog inside scrollable area */}
       <ChatView
         messages={messages}
         loading={loading}
         sending={sending}
         isProcessing={isProcessing}
+        pendingPermission={pendingPermission}
+        onPermissionResponse={onPermissionResponse}
       />
-
-      {/* AskUserQuestion dialog */}
-      {pendingPermission && pendingPermission.toolName === 'AskUserQuestion' && (
-        <AskUserQuestion
-          input={pendingPermission.input}
-          onSubmit={(answers) => onPermissionResponse(true, { answers })}
-          onCancel={() => onPermissionResponse(false)}
-        />
-      )}
-
-      {/* Permission dialog */}
-      {pendingPermission && pendingPermission.toolName !== 'AskUserQuestion' && (
-        <PermissionDialog
-          toolName={pendingPermission.toolName}
-          input={pendingPermission.input}
-          onRespond={(allow, options) => onPermissionResponse(allow, options)}
-        />
-      )}
 
       {/* Input bar */}
       <InputBar

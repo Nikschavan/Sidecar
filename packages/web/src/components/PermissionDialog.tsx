@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 interface PermissionDialogProps {
   toolName: string
@@ -75,6 +77,19 @@ export function PermissionDialog({ toolName, input, onRespond }: PermissionDialo
             <div className="bg-claude-bg rounded-lg p-3 font-mono text-sm">
               <div className="text-claude-text">Pattern: {pattern}</div>
               <div className="text-claude-text-muted text-xs mt-1">in {path}</div>
+            </div>
+          </div>
+        )
+      }
+
+      case 'ExitPlanMode':
+      case 'EnterPlanMode': {
+        const plan = input.plan as string
+        return (
+          <div className="space-y-2">
+            <div className="text-claude-coral font-semibold text-sm">{toolName}</div>
+            <div className="bg-claude-bg rounded-lg p-3 text-sm text-claude-text prose prose-sm prose-invert max-w-none">
+              <Markdown remarkPlugins={[remarkGfm]}>{plan || ''}</Markdown>
             </div>
           </div>
         )

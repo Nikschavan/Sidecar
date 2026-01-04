@@ -6,6 +6,8 @@ import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import type { ChatMessage, ImageBlock } from '@sidecar/shared'
 import { getTextContent, getImageBlocks } from '@sidecar/shared'
 import { ToolCard } from './ToolCard'
+import { PermissionDialog } from './PermissionDialog'
+import { AskUserQuestion } from './AskUserQuestion'
 
 // Parse command message format from user messages
 interface ParsedCommand {
@@ -132,14 +134,24 @@ function ImageLink({ index, onClick }: { index: number; onClick: () => void }) {
   )
 }
 
+interface PendingPermission {
+  requestId: string
+  sessionId: string
+  toolName: string
+  toolUseId: string
+  input: Record<string, unknown>
+}
+
 interface ChatViewProps {
   messages: ChatMessage[]
   loading: boolean
   sending: boolean
   isProcessing?: boolean
+  pendingPermission?: PendingPermission | null
+  onPermissionResponse?: (allow: boolean, options?: { answers?: Record<string, string[]>; allowAll?: boolean; customMessage?: string }) => void
 }
 
-export function ChatView({ messages, loading, sending, isProcessing }: ChatViewProps) {
+export function ChatView({ messages, loading, sending, isProcessing, pendingPermission, onPermissionResponse }: ChatViewProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const userScrolledUp = useRef(false)
@@ -204,6 +216,22 @@ export function ChatView({ messages, loading, sending, isProcessing }: ChatViewP
             <span key="dot-2" className="thinking-dot w-2 h-2 rounded-full"></span>
             <span key="dot-3" className="thinking-dot w-2 h-2 rounded-full"></span>
           </div>
+        )}
+
+        {/* Permission dialog - inside scrollable area */}
+        {pendingPermission && onPermissionResponse && pendingPermission.toolName === 'AskUserQuestion' && (
+          <AskUserQuestion
+            input={pendingPermission.input}
+            onSubmit={(answers) => onPermissionResponse(true, { answers })}
+            onCancel={() => onPermissionResponse(false)}
+          />
+        )}
+        {pendingPermission && onPermissionResponse && pendingPermission.toolName !== 'AskUserQuestion' && (
+          <PermissionDialog
+            toolName={pendingPermission.toolName}
+            input={pendingPermission.input}
+            onRespond={(allow, options) => onPermissionResponse(allow, options)}
+          />
         )}
 
         <div ref={bottomRef} />
