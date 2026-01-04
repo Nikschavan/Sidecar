@@ -113,3 +113,39 @@ export async function createSession(
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.json()
 }
+
+/**
+ * Abort a session (stop Claude processing)
+ */
+export async function abortSession(
+  apiUrl: string,
+  sessionId: string
+): Promise<void> {
+  const res = await fetch(`${apiUrl}/api/sessions/${sessionId}/abort`, {
+    method: 'POST',
+    headers: getAuthHeaders()
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+}
+
+/**
+ * Respond to a permission request
+ */
+export async function respondToPermission(
+  apiUrl: string,
+  sessionId: string,
+  payload: {
+    requestId: string
+    allow: boolean
+    allowAll?: boolean
+    toolName?: string
+    updatedInput?: Record<string, unknown>
+  }
+): Promise<void> {
+  const res = await fetch(`${apiUrl}/api/claude/sessions/${sessionId}/permission`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload)
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+}

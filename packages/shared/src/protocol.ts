@@ -1,10 +1,26 @@
 /**
- * WebSocket protocol definitions
+ * SSE protocol definitions
+ *
+ * Server-Sent Events for real-time updates.
+ * Client-to-server actions are now REST API calls.
  */
 
 import type { ChatMessage, SessionInfo, SessionState } from './types.js'
 
-// Server -> Client messages
+// SSE Event Types
+export type SSEEventType =
+  | 'connected'
+  | 'claude_message'
+  | 'permission_request'
+  | 'permission_resolved'
+  | 'permission_timeout'
+  | 'state_change'
+  | 'message'
+  | 'session_aborted'
+  | 'heartbeat'
+
+// Server -> Client SSE events
+
 export interface ServerConnectedMessage {
   type: 'connected'
   session: SessionInfo
@@ -89,23 +105,36 @@ export type ServerMessage =
   | ServerSessionAbortedMessage
   | ServerPermissionTimeoutMessage
 
-// Client -> Server messages
+// Alias for SSE
+export type SSEEvent = ServerMessage
+
+/**
+ * Client -> Server messages
+ * @deprecated These are now handled via REST API endpoints:
+ * - permission_response: POST /api/claude/sessions/:sessionId/permission
+ * - abort_session: POST /api/sessions/:sessionId/abort
+ * - watch_session: Handled via SSE connection to /api/events/:sessionId
+ */
+
+/** @deprecated Use POST /api/claude/sessions/:sessionId/send instead */
 export interface ClientSendMessage {
   type: 'send'
   text: string
 }
 
+/** @deprecated Session watching is now implicit via SSE connection */
 export interface ClientSubscribeMessage {
   type: 'subscribe'
   sessionId: string
 }
 
+/** @deprecated SSE has built-in connection keep-alive */
 export interface ClientPingMessage {
   type: 'ping'
 }
 
 
-// Permission response from user (approve/deny)
+/** @deprecated Use POST /api/claude/sessions/:sessionId/permission instead */
 export interface ClientPermissionResponseMessage {
   type: 'permission_response'
   sessionId: string
@@ -114,18 +143,19 @@ export interface ClientPermissionResponseMessage {
   updatedInput?: Record<string, unknown>
 }
 
-// Watch session for file-based permission detection
+/** @deprecated Session watching is now implicit via SSE connection */
 export interface ClientWatchSessionMessage {
   type: 'watch_session'
   sessionId: string
 }
 
-// Abort current Claude processing (like Ctrl+C)
+/** @deprecated Use POST /api/sessions/:sessionId/abort instead */
 export interface ClientAbortSessionMessage {
   type: 'abort_session'
   sessionId: string
 }
 
+/** @deprecated Client messages are now REST API calls */
 export type ClientMessage =
   | ClientSendMessage
   | ClientSubscribeMessage

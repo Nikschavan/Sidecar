@@ -48,6 +48,7 @@ export function getAuthHeaders(): Record<string, string> {
 
 /**
  * Get WebSocket URL with auth token
+ * @deprecated Use getAuthenticatedSseUrl instead
  */
 export function getAuthenticatedWsUrl(baseWsUrl: string): string {
   const token = getAuthToken()
@@ -55,4 +56,18 @@ export function getAuthenticatedWsUrl(baseWsUrl: string): string {
     return `${baseWsUrl}?token=${encodeURIComponent(token)}`
   }
   return baseWsUrl
+}
+
+/**
+ * Get SSE URL with auth token
+ * EventSource API doesn't support custom headers, so we pass token as query param
+ */
+export function getAuthenticatedSseUrl(baseSseUrl: string): string {
+  const token = getAuthToken()
+  if (token) {
+    const url = new URL(baseSseUrl, window.location.origin)
+    url.searchParams.set('token', token)
+    return url.toString()
+  }
+  return baseSseUrl
 }

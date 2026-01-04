@@ -7,6 +7,7 @@ import { healthRoutes } from './health.routes.js'
 import { claudeRoutes } from './claude.routes.js'
 import { sessionsRoutes } from './sessions.routes.js'
 import { createPushRoutes } from './push.routes.js'
+import { sseRoutes } from './sse.routes.js'
 
 export function createRoutes(vapidPublicKey: string): Hono {
   const routes = new Hono()
@@ -32,6 +33,9 @@ export function createRoutes(vapidPublicKey: string): Hono {
 
   // Push notification routes (/api/push/*)
   routes.route('/api/push', createPushRoutes(vapidPublicKey))
+
+  // SSE routes (/api/events/*)
+  routes.route('/api/events', sseRoutes)
 
   return routes
 }
