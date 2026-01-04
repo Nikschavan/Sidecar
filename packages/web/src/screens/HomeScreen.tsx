@@ -54,17 +54,23 @@ export function HomeScreen({
     <div className="h-full flex flex-col bg-claude-bg overflow-x-hidden">
       {/* Header */}
       <header
-        className="fixed top-0 left-0 right-0 px-4 flex items-center justify-between bg-claude-bg/95 backdrop-blur-sm z-10"
+        className="fixed top-0 left-0 right-0 px-4 flex items-center justify-between gap-3 bg-claude-bg/95 backdrop-blur-sm z-10 max-w-2xl mx-auto"
         style={{ paddingTop: 'max(env(safe-area-inset-top), 16px)', paddingBottom: '12px' }}
       >
-        <h1 className="text-lg font-medium text-claude-text">Sidecar</h1>
+        {/* Project dropdown */}
+        <ProjectDropdown
+          projects={projects}
+          currentProject={currentProject}
+          onProjectChange={onProjectChange}
+          className="flex-1 min-w-0"
+        />
 
         {/* Refresh button */}
         {onRefresh && (
           <button
             onClick={onRefresh}
             disabled={isRefreshing}
-            className="p-2 hover:bg-claude-bg-light rounded-full transition-colors disabled:opacity-50"
+            className="p-2 hover:bg-claude-bg-light rounded-full transition-colors disabled:opacity-50 shrink-0"
             title="Refresh sessions"
           >
             <svg
@@ -85,16 +91,7 @@ export function HomeScreen({
       </header>
 
       {/* Spacer for fixed header */}
-      <div style={{ paddingTop: 'calc(max(env(safe-area-inset-top), 16px) + 48px)' }} />
-
-      {/* Project dropdown */}
-      <div className="px-4 pb-4 max-w-2xl mx-auto w-full">
-        <ProjectDropdown
-          projects={projects}
-          currentProject={currentProject}
-          onProjectChange={onProjectChange}
-        />
-      </div>
+      <div style={{ paddingTop: 'calc(max(env(safe-area-inset-top), 16px) + 64px)' }} />
 
       {/* Sessions list */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 pb-24 max-w-2xl mx-auto w-full">
