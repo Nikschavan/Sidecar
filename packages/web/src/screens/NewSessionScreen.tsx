@@ -29,7 +29,6 @@ export function NewSessionScreen({
   onBack
 }: NewSessionScreenProps) {
   const [isCreating, setIsCreating] = useState(false)
-  const [pendingMessage, setPendingMessage] = useState<{ text: string; images?: ImageBlock[] } | null>(null)
   const [useCustomPath, setUseCustomPath] = useState(false)
   const [customPath, setCustomPath] = useState('')
   const customPathInputRef = useRef<HTMLInputElement>(null)
@@ -45,7 +44,6 @@ export function NewSessionScreen({
     if (isCreating) return
 
     setIsCreating(true)
-    setPendingMessage({ text, images })
 
     // If using custom path, update the project first
     if (useCustomPath && customPath.trim()) {
@@ -57,13 +55,11 @@ export function NewSessionScreen({
       if (!sessionId) {
         // Creation failed
         setIsCreating(false)
-        setPendingMessage(null)
       }
       // If successful, navigation happens in parent - we don't need to reset state
     } catch (e) {
       console.error('Failed to create session:', e)
       setIsCreating(false)
-      setPendingMessage(null)
     }
   }
 
@@ -73,6 +69,34 @@ export function NewSessionScreen({
 
   const handleModelChange = (model: Model) => {
     onSettingsChange({ ...settings, model })
+  }
+
+  // Show full-screen loading state when creating session
+  if (isCreating) {
+    return (
+      <div className="h-full flex flex-col bg-claude-bg overflow-x-hidden">
+        {/* Header */}
+        <header
+          className="px-4 flex items-center gap-3"
+          style={{ paddingTop: 'max(env(safe-area-inset-top), 12px)', paddingBottom: '12px' }}
+        >
+          <div className="p-2 -ml-2 shrink-0 w-10" /> {/* Spacer for alignment */}
+          <h1 className="text-base font-medium text-claude-text">
+            Creating Session
+          </h1>
+        </header>
+
+        {/* Full screen loading */}
+        <div className="flex-1 flex flex-col items-center justify-center p-4">
+          <div className="flex gap-1 mb-4">
+            <span className="thinking-dot w-3 h-3 rounded-full"></span>
+            <span className="thinking-dot w-3 h-3 rounded-full"></span>
+            <span className="thinking-dot w-3 h-3 rounded-full"></span>
+          </div>
+          <p className="text-claude-text-muted text-sm">Starting session...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -195,37 +219,6 @@ export function NewSessionScreen({
               ))}
             </div>
           </div>
-
-          {/* Creating indicator with pending message */}
-          {isCreating && pendingMessage && (
-            <div className="bg-claude-bg-light rounded-xl p-4">
-              {/* Pending message preview */}
-              <div className="mb-4 bg-claude-surface rounded-xl p-4 max-w-[85%] ml-auto">
-                <p className="text-claude-text whitespace-pre-wrap">{pendingMessage.text}</p>
-                {pendingMessage.images && pendingMessage.images.length > 0 && (
-                  <div className="flex gap-2 mt-2 flex-wrap">
-                    {pendingMessage.images.map((img, i) => (
-                      <img
-                        key={i}
-                        src={`data:${img.source.media_type};base64,${img.source.data}`}
-                        alt="Attached"
-                        className="w-16 h-16 object-cover rounded-lg border border-claude-border"
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Loading indicator */}
-              <div className="flex items-center justify-center gap-2 text-claude-text-muted">
-                <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                <span>Creating session...</span>
-              </div>
-            </div>
-          )}
         </div>
       </div>
 

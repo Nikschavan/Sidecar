@@ -3,7 +3,7 @@
  * Provides caching, stale-while-revalidate, and background refetches
  */
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { useProjects } from './useProjects'
 import { useSessionsList } from './useSessionsList'
 import { useSessionMessages } from './useSessionMessages'
@@ -12,7 +12,7 @@ import { useSendMessage } from './useSendMessage'
 import { useCreateSession } from './useCreateSession'
 import { useSessionWebSocket, type PendingPermission } from './useSessionWebSocket'
 import type { SessionSettings } from '../components/InputBar'
-import type { ImageBlock } from '@sidecar/shared'
+import type { ImageBlock, ChatMessage } from '@sidecar/shared'
 
 export function useSessions(
   apiUrl: string,
@@ -24,6 +24,10 @@ export function useSessions(
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
   const [pendingPermission, setPendingPermission] = useState<PendingPermission | null>(null)
+  // Temporary session name for newly created sessions (before sessions list refreshes)
+  const [pendingSessionName, setPendingSessionName] = useState<string | null>(null)
+  // Pending initial message shown optimistically until real messages load
+  const [pendingInitialMessage, setPendingInitialMessage] = useState<{ text: string; images?: ImageBlock[] } | null>(null)
 
   // React Query hooks
   const {
@@ -39,10 +43,41 @@ export function useSessions(
   } = useSessionsList(apiUrl, currentProject)
 
   const {
-    messages,
+    messages: fetchedMessages,
     isActive,
     isLoading: messagesLoading,
   } = useSessionMessages(apiUrl, currentSessionId)
+
+  // Clear pending initial message once real messages are loaded
+  useEffect(() => {
+    if (fetchedMessages.length > 0 && pendingInitialMessage) {
+      setPendingInitialMessage(null)
+    }
+  }, [fetchedMessages.length, pendingInitialMessage])
+
+  // Combine pending initial message with fetched messages
+  const messages = useMemo((): ChatMessage[] => {
+    // If we have real messages, use those
+    if (fetchedMessages.length > 0) {
+      return fetchedMessages
+    }
+    // If we have a pending initial message, show it optimistically
+    if (pendingInitialMessage) {
+      // Build content array - ContentBlock is string | ImageBlock
+      const content: (string | ImageBlock)[] = [pendingInitialMessage.text]
+      if (pendingInitialMessage.images?.length) {
+        content.push(...pendingInitialMessage.images)
+      }
+      const optimisticMessage: ChatMessage = {
+        id: 'pending-initial-message',
+        role: 'user',
+        content,
+        timestamp: new Date().toISOString(),
+      }
+      return [optimisticMessage]
+    }
+    return []
+  }, [fetchedMessages, pendingInitialMessage])
 
   // Fetch metadata (triggers onModelChange side effect)
   useSessionMetadata(apiUrl, currentSessionId, onModelChange)
@@ -110,6 +145,8 @@ export function useSessions(
     setCurrentSessionId(sessionId)
     setPendingPermission(null)
     setIsProcessing(false)
+    setPendingInitialMessage(null)
+    setPendingSessionName(null)
   }, [])
 
   const sendMessage = useCallback(async (text: string, images?: ImageBlock[]) => {
@@ -126,13 +163,21 @@ export function useSessions(
 
     try {
       const result = await createSessionMutation.mutateAsync({ text, images })
+      // Set the current session ID immediately so messages start loading
+      setCurrentSessionId(result.sessionId)
+      // Store the initial message text as a temporary session name
+      setPendingSessionName(text.slice(0, 100))
+      // Store the pending message to show optimistically
+      setPendingInitialMessage({ text, images })
+      // Refresh sessions list so new session appears when going back
+      refreshSessions()
       return result.sessionId
     } catch (e) {
       console.error('Failed to create session:', e)
       setIsProcessing(false)
       return null
     }
-  }, [currentProject, createSessionMutation])
+  }, [currentProject, createSessionMutation, refreshSessions])
 
   const respondToPermission = useCallback((
     allow: boolean,
@@ -153,6 +198,8 @@ export function useSessions(
 
   const clearForNewSession = useCallback(() => {
     setCurrentSessionId(null)
+    setPendingSessionName(null)
+    setPendingInitialMessage(null)
   }, [])
 
   return {
@@ -160,6 +207,7 @@ export function useSessions(
     currentProject,
     sessions,
     currentSessionId,
+    pendingSessionName,
     messages,
     loading: projectsLoading || sessionsLoading || messagesLoading,
     sending: sendMessageMutation.isPending,

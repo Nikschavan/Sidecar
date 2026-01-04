@@ -136,9 +136,10 @@ interface ChatViewProps {
   messages: ChatMessage[]
   loading: boolean
   sending: boolean
+  isProcessing?: boolean
 }
 
-export function ChatView({ messages, loading, sending }: ChatViewProps) {
+export function ChatView({ messages, loading, sending, isProcessing }: ChatViewProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const userScrolledUp = useRef(false)
@@ -196,7 +197,7 @@ export function ChatView({ messages, loading, sending }: ChatViewProps) {
           <MessageBubble key={msg.id} message={msg} />
         ))}
 
-        {sending && (
+        {(sending || isProcessing) && (
           <div className="flex gap-1 py-2">
             <span key="dot-1" className="thinking-dot w-2 h-2 rounded-full"></span>
             <span key="dot-2" className="thinking-dot w-2 h-2 rounded-full"></span>

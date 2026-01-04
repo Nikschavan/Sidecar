@@ -93,6 +93,7 @@ function AppContent() {
     currentProject,
     sessions,
     currentSessionId,
+    pendingSessionName,
     messages,
     loading,
     sending,
@@ -160,10 +161,12 @@ function AppContent() {
 
   if (route.screen === 'chat' && route.sessionId) {
     const currentSession = sessions.find(s => s.id === route.sessionId)
+    // Use session name from API, fall back to pending name from initial message
+    const sessionName = currentSession?.name ?? pendingSessionName
     return (
       <ChatScreen
         sessionId={route.sessionId}
-        sessionName={currentSession?.name ?? null}
+        sessionName={sessionName}
         projectPath={currentProject}
         messages={messages}
         loading={loading}
