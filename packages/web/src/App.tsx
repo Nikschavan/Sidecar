@@ -123,7 +123,7 @@ function AppContent() {
   }
 
   const handleBack = () => {
-    navigate('/')
+    history.back()
   }
 
   const handleNewSession = () => {

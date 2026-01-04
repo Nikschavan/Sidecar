@@ -1,7 +1,4 @@
-import { useEffect, useRef } from 'react'
 import { ProjectDropdown } from '../components/ProjectDropdown'
-
-const SCROLL_POSITION_KEY = 'homescreen-scroll-position'
 
 interface Project {
   path: string
@@ -53,23 +50,6 @@ export function HomeScreen({
   onRefresh,
   isRefreshing
 }: HomeScreenProps) {
-  const scrollContainerRef = useRef<HTMLDivElement>(null)
-
-  // Restore scroll position on mount
-  useEffect(() => {
-    const savedPosition = sessionStorage.getItem(SCROLL_POSITION_KEY)
-    if (savedPosition && scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTop = parseInt(savedPosition, 10)
-    }
-  }, [])
-
-  // Save scroll position on scroll
-  const handleScroll = () => {
-    if (scrollContainerRef.current) {
-      sessionStorage.setItem(SCROLL_POSITION_KEY, String(scrollContainerRef.current.scrollTop))
-    }
-  }
-
   return (
     <div className="h-full flex flex-col bg-claude-bg overflow-x-hidden">
       {/* Header */}
@@ -114,11 +94,7 @@ export function HomeScreen({
       <div style={{ paddingTop: 'calc(max(env(safe-area-inset-top), 16px) + 64px)' }} />
 
       {/* Sessions list */}
-      <div
-        ref={scrollContainerRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-y-auto overflow-x-hidden px-4 pb-24 max-w-2xl mx-auto w-full"
-      >
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 pb-36 max-w-2xl mx-auto w-full">
         {!currentProject ? (
           <div className="flex items-center justify-center h-full text-claude-text-muted">
             Select a project to view sessions
