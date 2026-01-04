@@ -4,13 +4,18 @@ import { HomeScreen } from './screens/HomeScreen'
 import { ChatScreen } from './screens/ChatScreen'
 import { NewSessionScreen } from './screens/NewSessionScreen'
 import { AuthGate } from './components/AuthGate'
+import { NotificationBanner } from './components/NotificationBanner'
 import type { SessionSettings } from './components/InputBar'
 import type { ImageBlock } from '@sidecar/shared'
 
 // Get API URL from current location or default to localhost
+// When behind a proxy (no port in URL), use the same origin
+// When accessed directly with port, use that port
 const API_URL = window.location.hostname === 'localhost'
   ? 'http://localhost:3456'
-  : `http://${window.location.hostname}:3456`
+  : window.location.port
+    ? `${window.location.protocol}//${window.location.hostname}:${window.location.port}`
+    : window.location.origin
 
 // Simple hash-based router
 function useRouter() {
@@ -200,6 +205,7 @@ function AppContent() {
 function App() {
   return (
     <AuthGate apiUrl={API_URL}>
+      <NotificationBanner apiUrl={API_URL} />
       <AppContent />
     </AuthGate>
   )

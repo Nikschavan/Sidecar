@@ -7,13 +7,14 @@
 import { createServer } from 'node:http'
 import { WebSocketServer } from 'ws'
 import { Hono } from 'hono'
-import { app } from './app.js'
+import { createApp } from './app.js'
 import { createWSServer } from './ws/server.js'
 import { claudeService } from './services/claude.service.js'
 import { sessionsService } from './services/sessions.service.js'
 import { setupClaudeHooks, removeClaudeHooks } from './claude/hooks.js'
 import { loadOrCreateToken, rotateToken, getAuthFilePath } from './auth/token.js'
 import { formatNetworkUrls } from './utils/network.js'
+import { getOrCreateVapidKeys, PushService } from './push/index.js'
 import {
   handleSubscribe,
   handleSend,
@@ -40,8 +41,15 @@ if (shouldRotateToken) {
 // Load or create auth token
 const AUTH_TOKEN = loadOrCreateToken()
 
+// Initialize VAPID keys and push service
+const vapidKeys = getOrCreateVapidKeys()
+const pushService = new PushService(vapidKeys)
+
 // Kill any orphaned Claude processes from previous Sidecar runs
 claudeService.killOrphanedProcesses()
+
+// Create the Hono app with push support
+const app = createApp(vapidKeys.publicKey)
 
 // Create HTTP server that delegates to Hono
 const httpServer = createServer(async (req, res) => {
@@ -73,8 +81,9 @@ const httpServer = createServer(async (req, res) => {
   res.end(responseBody)
 })
 
-// Create WebSocket server attached to HTTP server
-const wss = new WebSocketServer({ server: httpServer })
+// Create WebSocket server attached to HTTP server with a dedicated path
+// Using a /ws path makes it easier to configure reverse proxies for WebSocket
+const wss = new WebSocketServer({ server: httpServer, path: '/ws' })
 
 const ws = createWSServer(wss, {
   onConnection(client) {
@@ -133,6 +142,7 @@ claudeService.onMessage((sessionId, message) => {
 })
 
 claudeService.onPermissionRequest((sessionId, permission) => {
+  // Broadcast via WebSocket
   ws.broadcast({
     type: 'permission_request',
     sessionId,
@@ -142,6 +152,20 @@ claudeService.onPermissionRequest((sessionId, permission) => {
     input: permission.input,
     source: permission.source,
     permissionSuggestions: permission.permissionSuggestions
+  })
+
+  // Send push notification
+  pushService.sendToAll({
+    title: 'Permission Required',
+    body: `Claude needs permission to use ${permission.toolName}`,
+    tag: `permission-${sessionId}`,
+    data: {
+      type: 'permission_request',
+      sessionId,
+      url: `/#/session/${sessionId}`
+    }
+  }).catch((err) => {
+    console.error('[server] Failed to send push notification:', err)
   })
 })
 
@@ -195,7 +219,7 @@ Web UI:
 ${formatNetworkUrls(PORT, 'http')}
 
 WebSocket:
-${formatNetworkUrls(PORT, 'ws')}
+${formatNetworkUrls(PORT, 'ws').split('\n').map(line => line.includes('://') ? line.replace(/\/$/, '') + '/ws' : line).join('\n')}
 
 Authentication:
   Token: ${AUTH_TOKEN}

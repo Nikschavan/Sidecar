@@ -36,7 +36,7 @@ describe('Auth Middleware', () => {
     // Set test token for validation
     setTestToken(TEST_TOKEN)
 
-    const app = createApp()
+    const app = createApp('test-vapid-public-key')
 
     // Create HTTP server wrapping Hono app
     server = createServer(async (req, res) => {
