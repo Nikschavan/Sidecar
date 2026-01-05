@@ -57,12 +57,12 @@ pnpm build:binary
 
 ```
 packages/
-├── server/          # Hono HTTP + WebSocket server
+├── server/          # Hono HTTP + SSE server
 │   ├── src/
 │   │   ├── cli.ts           # CLI entry point
 │   │   ├── index.ts         # Server entry point
 │   │   ├── routes/          # API routes
-│   │   ├── ws/              # WebSocket handlers
+│   │   ├── sse/             # Server-Sent Events handlers
 │   │   └── web/             # Embedded asset serving
 │   └── scripts/
 │       └── generate-embedded-assets.ts
@@ -72,6 +72,6 @@ packages/
 
 **Key components:**
 - **CLI**: Bun-compiled native binary with embedded web UI
-- **Server**: Hono framework serving HTTP API and WebSocket
-- **Web**: React PWA that connects via WebSocket
+- **Server**: Hono framework serving HTTP API and SSE (Server-Sent Events)
+- **Web**: React PWA that connects via SSE for real-time updates
 - **Auth**: Bearer token stored in `~/.sidecar/auth.json`
