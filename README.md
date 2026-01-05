@@ -123,3 +123,10 @@ packages/
 - **Server**: Hono framework serving HTTP API and SSE (Server-Sent Events)
 - **Web**: React PWA that connects via SSE for real-time updates
 - **Auth**: Bearer token stored in `~/.sidecar/auth.json`
+
+## Alternatives
+
+- **[Happy](https://github.com/slopus/happy)** - Supports multiple AI agents. Requires a separate CLI command and uses a third-party server to connect your phone
+- **[hapi](https://github.com/tiann/hapi)** - Supports multiple AI agents. Requires a separate CLI command to run
+
+Sidecar is Claude Code-only but works with your existing `claude` CLI sessions directly—no separate commands or third-party servers required.
