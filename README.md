@@ -16,6 +16,11 @@ Sidecar lets you control and monitor Claude Code sessions from any device on you
 4. Send messages from phone → Sidecar spawns `claude --resume <session>`
 5. Handoff back to terminal anytime - sessions persist
 
+## Requirements
+
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI installed and authenticated
+- [Bun](https://bun.sh) (for building from source)
+
 ## Usage
 
 ```bash
@@ -33,10 +38,41 @@ Sidecar lets you control and monitor Claude Code sessions from any device on you
 ./sidecar token --rotate
 ```
 
+### CLI Options
+
+```bash
+./sidecar start [options]
+  -p, --port <port>    Use custom port (default: 3456)
+  -f, --foreground     Run in foreground instead of background
+
+./sidecar -v, --version    Show version
+./sidecar help             Show help
+```
+
 On start, Sidecar displays all available URLs:
 - **Local**: `http://localhost:3456`
 - **Network**: `http://192.168.x.x:3456` (your LAN IP)
 - **Tailscale**: `http://100.x.x.x:3456` (if Tailscale is active)
+
+## PWA & Push Notifications
+
+Sidecar's web UI is a Progressive Web App (PWA) that can be installed on your phone for a native app-like experience. It supports push notifications to alert you when Claude needs permission approval.
+
+**HTTPS Required**: Push notifications require HTTPS. Use a reverse proxy to expose Sidecar over HTTPS:
+
+```bash
+# Using ngrok
+ngrok http 3456
+
+# Using Cloudflare Tunnel
+cloudflared tunnel --url http://localhost:3456
+```
+
+Once accessible via HTTPS:
+1. Open the URL on your phone
+2. Install the PWA ("Add to Home Screen")
+3. Enable notifications when prompted
+4. You'll receive push notifications for permission requests even when the app is in the background
 
 ## Building from Source
 
