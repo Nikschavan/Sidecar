@@ -74,7 +74,19 @@ Once accessible via HTTPS:
 3. Enable notifications when prompted
 4. You'll receive push notifications for permission requests even when the app is in the background
 
-## Building from Source
+## Installation
+
+### Homebrew (macOS)
+
+```bash
+brew install nikschavan/sidecar/sidecar
+```
+
+### Download Binary
+
+Download the latest binary from [Releases](https://github.com/Nikschavan/Sidecar/releases).
+
+### Building from Source
 
 Requires [Bun](https://bun.sh) for building the binary.
 
