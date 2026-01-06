@@ -21,6 +21,33 @@ Sidecar lets you control and monitor Claude Code sessions from any device on you
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI installed and authenticated
 - [Bun](https://bun.sh) (for building from source)
 
+## Installation
+
+### Homebrew (macOS)
+
+```bash
+brew install nikschavan/sidecar/sidecar
+```
+
+### Download Binary
+
+Download the latest binary from [Releases](https://github.com/Nikschavan/Sidecar/releases).
+
+### Building from Source
+
+Requires [Bun](https://bun.sh) for building the binary.
+
+```bash
+# Install dependencies
+pnpm install
+
+# Build web UI
+pnpm build
+
+# Generate embedded assets and compile binary
+pnpm build:binary
+```
+
 ## Usage
 
 ```bash
@@ -73,33 +100,6 @@ Once accessible via HTTPS:
 2. Install the PWA ("Add to Home Screen")
 3. Enable notifications when prompted
 4. You'll receive push notifications for permission requests even when the app is in the background
-
-## Installation
-
-### Homebrew (macOS)
-
-```bash
-brew install nikschavan/sidecar/sidecar
-```
-
-### Download Binary
-
-Download the latest binary from [Releases](https://github.com/Nikschavan/Sidecar/releases).
-
-### Building from Source
-
-Requires [Bun](https://bun.sh) for building the binary.
-
-```bash
-# Install dependencies
-pnpm install
-
-# Build web UI
-pnpm build
-
-# Generate embedded assets and compile binary
-pnpm build:binary
-```
 
 ## Architecture
 
