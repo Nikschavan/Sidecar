@@ -653,7 +653,8 @@ export class ClaudeService {
       })
     }
 
-    // Check for file-based AskUserQuestion permissions
+    // Check for file-based AskUserQuestion permissions (already tracked)
+    const seenToolIds = new Set<string>()
     for (const [toolId, entry] of this.pendingAskUserQuestions) {
       if (entry.sessionId === sessionId) {
         permissions.push({
@@ -663,6 +664,35 @@ export class ClaudeService {
           input: entry.tool.input as Record<string, unknown>,
           source: 'file'
         })
+        seenToolIds.add(entry.tool.id)
+      }
+    }
+
+    // Also add hook permission to seen set
+    if (pendingHook) {
+      seenToolIds.add(pendingHook.toolUseId)
+    }
+
+    // Check session file directly for any pending tool calls we haven't seen
+    // This handles the case where user disconnects and reconnects while a permission is pending
+    const projectPath = findSessionProject(sessionId)
+    if (projectPath) {
+      try {
+        const sessionData = readSessionData(projectPath, sessionId)
+        if (isSessionActive(projectPath, sessionId, 30)) {
+          for (const tool of sessionData.pendingToolCalls) {
+            if (seenToolIds.has(tool.id)) continue
+            permissions.push({
+              toolName: tool.name,
+              toolUseId: tool.id,
+              requestId: tool.id,
+              input: tool.input as Record<string, unknown>,
+              source: 'file'
+            })
+          }
+        }
+      } catch {
+        // Session file not readable, skip
       }
     }
 
