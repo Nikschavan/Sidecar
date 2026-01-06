@@ -25,28 +25,28 @@ Sidecar lets you control and monitor Claude Code sessions from any device on you
 
 ```bash
 # Start server in background
-./sidecar start
+sidecar start
 
 # Check status and connection URLs
-./sidecar status
+sidecar status
 
 # Stop the server
-./sidecar stop
+sidecar stop
 
 # Show or rotate auth token
-./sidecar token
-./sidecar token --rotate
+sidecar token
+sidecar token --rotate
 ```
 
 ### CLI Options
 
 ```bash
-./sidecar start [options]
+sidecar start [options]
   -p, --port <port>    Use custom port (default: 3456)
   -f, --foreground     Run in foreground instead of background
 
-./sidecar -v, --version    Show version
-./sidecar help             Show help
+sidecar -v, --version    Show version
+sidecar help             Show help
 ```
 
 On start, Sidecar displays all available URLs:
