@@ -87,6 +87,9 @@ export class ClaudeService {
   // Track sessions being approved via resume
   private sessionsBeingApproved = new Set<string>()
 
+  // Track denied/cancelled permission IDs to prevent re-sending on reconnection
+  private deniedPermissionIds = new Set<string>()
+
   // Track permission timeouts (requestId -> timeout handle)
   private permissionTimeouts = new Map<string, NodeJS.Timeout>()
 
@@ -471,6 +474,17 @@ export class ClaudeService {
       return true
     }
 
+    // Handle denial - track as denied to prevent re-sending on reconnection
+    if (!allow) {
+      console.log(`[ClaudeService] Permission denied for ${requestId}, tracking to prevent re-send`)
+      this.deniedPermissionIds.add(requestId)
+      // Clear from pending maps if present
+      this.pendingHookPermissions.delete(sessionId)
+      this.pendingAskUserQuestions.delete(requestId)
+      this.emitPermissionResolved(sessionId, requestId)
+      return true
+    }
+
     console.log(`[ClaudeService] No active process or hook permission found for session ${sessionId}`)
     return false
   }
@@ -641,9 +655,9 @@ export class ClaudeService {
       source: 'hook' | 'file'
     }> = []
 
-    // Check for hook-based permissions
+    // Check for hook-based permissions (skip if denied)
     const pendingHook = this.pendingHookPermissions.get(sessionId)
-    if (pendingHook && (Date.now() - pendingHook.timestamp < 300000)) {
+    if (pendingHook && (Date.now() - pendingHook.timestamp < 300000) && !this.deniedPermissionIds.has(pendingHook.toolUseId)) {
       permissions.push({
         toolName: pendingHook.toolName,
         toolUseId: pendingHook.toolUseId,
@@ -653,10 +667,10 @@ export class ClaudeService {
       })
     }
 
-    // Check for file-based AskUserQuestion permissions (already tracked)
+    // Check for file-based AskUserQuestion permissions (already tracked, skip if denied)
     const seenToolIds = new Set<string>()
     for (const [toolId, entry] of this.pendingAskUserQuestions) {
-      if (entry.sessionId === sessionId) {
+      if (entry.sessionId === sessionId && !this.deniedPermissionIds.has(toolId)) {
         permissions.push({
           toolName: entry.tool.name,
           toolUseId: entry.tool.id,
@@ -682,6 +696,7 @@ export class ClaudeService {
         if (isSessionActive(projectPath, sessionId, 30)) {
           for (const tool of sessionData.pendingToolCalls) {
             if (seenToolIds.has(tool.id)) continue
+            if (this.deniedPermissionIds.has(tool.id)) continue // Skip denied permissions
             permissions.push({
               toolName: tool.name,
               toolUseId: tool.id,
