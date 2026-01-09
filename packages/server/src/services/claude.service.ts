@@ -90,6 +90,9 @@ export class ClaudeService {
   // Track denied/cancelled permission IDs to prevent re-sending on reconnection
   private deniedPermissionIds = new Set<string>()
 
+  // Track resolved/approved permission IDs to prevent re-sending on reconnection
+  private resolvedPermissionIds = new Set<string>()
+
   // Track permission timeouts (requestId -> timeout handle)
   private permissionTimeouts = new Map<string, NodeJS.Timeout>()
 
@@ -447,6 +450,11 @@ export class ClaudeService {
     // Clear the timeout since we're responding
     this.clearPermissionTimeout(requestId)
 
+    // Track as resolved/approved to prevent re-sending on reconnection
+    if (allow) {
+      this.resolvedPermissionIds.add(requestId)
+    }
+
     // Track as allowed if user clicked "Allow All"
     if (allow && options.allowAll && options.toolName) {
       let allowedTools = this.allowedToolsBySession.get(sessionId)
@@ -504,6 +512,7 @@ export class ClaudeService {
       return
     }
 
+    const isAskUserQuestion = pendingHook.toolName === 'AskUserQuestion'
     console.log(`[ClaudeService] Approving ${pendingHook.toolName} via resume for session ${sessionId}`)
 
     // Mark session as being approved to prevent re-detection during polling
@@ -522,8 +531,10 @@ export class ClaudeService {
       },
       onPermissionRequest: (permReq) => {
         // Auto-approve any permission request that comes through during resume
-        console.log(`[ClaudeService] Resume: got permission request for ${permReq.toolName}, auto-approving`)
-        claude.sendPermissionResponse(permReq.requestId, true, permReq.input)
+        // Use updatedInput (contains AskUserQuestion answers) if provided, otherwise use original input
+        const inputToSend = updatedInput || permReq.input
+        console.log(`[ClaudeService] Resume: got permission request for ${permReq.toolName}, auto-approving with ${updatedInput ? 'updatedInput' : 'original input'}`)
+        claude.sendPermissionResponse(permReq.requestId, true, inputToSend)
       }
     })
 
@@ -533,10 +544,17 @@ export class ClaudeService {
     })
 
     // Send a nudge message to trigger Claude to continue
-    // The resumed process may be waiting for input
+    // For AskUserQuestion: send the actual answers as user message
+    // For other tools: send "continue" to trigger processing
     setTimeout(() => {
-      console.log(`[ClaudeService] Sending continue nudge to resumed Claude`)
-      claude.send('continue')
+      if (isAskUserQuestion && updatedInput?.answers) {
+        const answersJson = JSON.stringify(updatedInput.answers)
+        console.log(`[ClaudeService] Sending answers to resumed Claude: ${answersJson}`)
+        claude.send(answersJson)
+      } else {
+        console.log(`[ClaudeService] Sending continue nudge to resumed Claude`)
+        claude.send('continue')
+      }
     }, 1000)
 
     // Handle process exit
@@ -655,9 +673,9 @@ export class ClaudeService {
       source: 'hook' | 'file'
     }> = []
 
-    // Check for hook-based permissions (skip if denied)
+    // Check for hook-based permissions (skip if denied or already resolved)
     const pendingHook = this.pendingHookPermissions.get(sessionId)
-    if (pendingHook && (Date.now() - pendingHook.timestamp < 300000) && !this.deniedPermissionIds.has(pendingHook.toolUseId)) {
+    if (pendingHook && (Date.now() - pendingHook.timestamp < 300000) && !this.deniedPermissionIds.has(pendingHook.toolUseId) && !this.resolvedPermissionIds.has(pendingHook.toolUseId)) {
       permissions.push({
         toolName: pendingHook.toolName,
         toolUseId: pendingHook.toolUseId,
@@ -667,10 +685,10 @@ export class ClaudeService {
       })
     }
 
-    // Check for file-based AskUserQuestion permissions (already tracked, skip if denied)
+    // Check for file-based AskUserQuestion permissions (already tracked, skip if denied or resolved)
     const seenToolIds = new Set<string>()
     for (const [toolId, entry] of this.pendingAskUserQuestions) {
-      if (entry.sessionId === sessionId && !this.deniedPermissionIds.has(toolId)) {
+      if (entry.sessionId === sessionId && !this.deniedPermissionIds.has(toolId) && !this.resolvedPermissionIds.has(toolId)) {
         permissions.push({
           toolName: entry.tool.name,
           toolUseId: entry.tool.id,
@@ -697,6 +715,7 @@ export class ClaudeService {
           for (const tool of sessionData.pendingToolCalls) {
             if (seenToolIds.has(tool.id)) continue
             if (this.deniedPermissionIds.has(tool.id)) continue // Skip denied permissions
+            if (this.resolvedPermissionIds.has(tool.id)) continue // Skip resolved/approved permissions
             permissions.push({
               toolName: tool.name,
               toolUseId: tool.id,
