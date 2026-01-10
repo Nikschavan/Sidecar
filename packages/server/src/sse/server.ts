@@ -79,7 +79,9 @@ export class SSEServer {
    */
   sendToSession(sessionId: string, event: SSEEventType, data: unknown): void {
     const clientIds = this.sessionClients.get(sessionId)
-    if (!clientIds || clientIds.size === 0) return
+    if (!clientIds || clientIds.size === 0) {
+      return
+    }
 
     for (const clientId of clientIds) {
       const client = this.clients.get(clientId)

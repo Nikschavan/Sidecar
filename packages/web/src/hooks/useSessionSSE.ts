@@ -74,9 +74,20 @@ export function useSessionSSE({
     queryClient.setQueryData<SessionMessagesResponse>(
       queryKeys.messages(sessionId),
       (old) => {
-        if (!old) return old
+        // Initialize cache if it doesn't exist (hook-based sessions)
+        if (!old) {
+          return {
+            sessionId,
+            projectPath: '',  // Will be populated on next fetch
+            messageCount: 1,
+            messages: [message],
+            isActive: true,
+          }
+        }
 
-        const exists = old.messages.some(m => m.id === message.id)
+        // Skip check if message has no ID (system messages) - always add them
+        const messageId = message.id
+        const exists = messageId ? old.messages.some(m => m.id === messageId) : false
         if (exists) {
           // Update existing message (streaming updates)
           return {
@@ -135,14 +146,21 @@ export function useSessionSSE({
         try {
           const data = JSON.parse(event.data)
           const sessionId = currentSessionIdRef.current
-          if (!sessionId || data.sessionId !== sessionId) return
+          if (!sessionId || data.sessionId !== sessionId) {
+            return
+          }
 
           const message = data.message
-          updateMessagesCache(message, sessionId)
 
-          // Check if Claude finished processing
+          // Result messages are status updates, not chat messages - don't add to cache
           if (message.type === 'result') {
             onProcessingCompleteRef.current()
+            return
+          }
+
+          // Only add valid chat messages to cache (must have id and role)
+          if (message.id && message.role) {
+            updateMessagesCache(message, sessionId)
           }
 
           // Check if tool call was resolved
@@ -204,7 +222,7 @@ export function useSessionSSE({
       })
 
       eventSource.onerror = () => {
-        console.log('[SSE] Error/disconnected')
+        console.log('[SSE] Disconnected')
         // EventSource auto-reconnects, but we'll also schedule our own reconnect
         // in case the auto-reconnect fails or takes too long
         if (!isUnmountedRef.current && eventSourceRef.current === eventSource) {
@@ -215,7 +233,7 @@ export function useSessionSSE({
           // Schedule reconnect
           reconnectTimeoutRef.current = window.setTimeout(() => {
             if (!isUnmountedRef.current) {
-              console.log('[SSE] Attempting manual reconnect...')
+              console.log('[SSE] Reconnecting...')
               connect()
             }
           }, 5000) // 5 second delay before manual reconnect
@@ -252,7 +270,6 @@ export function useSessionSSE({
 
     // Session changed, need to reconnect
     const sseUrl = `${apiUrl}/api/events/${currentSessionId}`
-    console.log('[SSE] Session changed, reconnecting to', sseUrl)
 
     if (eventSourceRef.current) {
       eventSourceRef.current.close()
@@ -262,7 +279,7 @@ export function useSessionSSE({
     eventSourceRef.current = eventSource
 
     eventSource.addEventListener('connected', () => {
-      console.log('[SSE] Connected to new session')
+      // Connected to new session
     })
 
     eventSource.addEventListener('heartbeat', () => {
@@ -272,13 +289,21 @@ export function useSessionSSE({
     eventSource.addEventListener('claude_message', (event) => {
       try {
         const data = JSON.parse(event.data)
-        if (data.sessionId !== currentSessionId) return
+        if (data.sessionId !== currentSessionId) {
+          return
+        }
 
         const message = data.message
-        updateMessagesCache(message, currentSessionId)
 
+        // Result messages are status updates, not chat messages - don't add to cache
         if (message.type === 'result') {
           onProcessingCompleteRef.current()
+          return
+        }
+
+        // Only add valid chat messages to cache (must have id and role)
+        if (message.id && message.role) {
+          updateMessagesCache(message, currentSessionId)
         }
 
         const toolCalls = message.toolCalls as Array<{ id: string; result?: string }> | undefined
@@ -336,7 +361,7 @@ export function useSessionSSE({
     })
 
     eventSource.onerror = () => {
-      console.log('[SSE] Error on session-specific connection')
+      console.log('[SSE] Disconnected from session')
     }
 
   }, [apiUrl, currentSessionId, updateMessagesCache])

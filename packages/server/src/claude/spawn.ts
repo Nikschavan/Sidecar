@@ -145,6 +145,7 @@ export function spawnClaude(options: SpawnOptions): ClaudeProcess {
 
   // Handle exit
   child.on('close', (code) => {
+    console.log(`[spawn] Process exited with code ${code}`)
     for (const cb of exitCallbacks) {
       cb(code)
     }

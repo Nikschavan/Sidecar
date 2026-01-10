@@ -231,9 +231,100 @@ export class ClaudeService {
    * Emit a message event
    */
   private emitMessage(sessionId: string, message: unknown): void {
-    for (const handler of this.messageHandlers) {
-      handler(sessionId, message)
+    // Claude's raw JSON format from spawned process:
+    // - System messages: { type: "system", subtype: "init|hook_response|...", ... } - skip these
+    // - Wrapped messages: { type: "assistant"|"user", message: { id, role, content, ... } } - unwrap
+    // - Result messages: { type: "result", result: "...", duration_ms, is_error } - emit for processing complete
+    //
+    // File polling format (already unwrapped):
+    // - Chat messages: { id, role, content, timestamp }
+    const rawMsg = message as { type?: string; role?: string; id?: string; subtype?: string; message?: unknown }
+
+    // Skip system messages that aren't relevant to chat UI (init, hook_response, etc.)
+    if (rawMsg.type === 'system') {
+      return
     }
+
+    // Allow result messages through (for processing complete detection)
+    if (rawMsg.type === 'result') {
+      for (const handler of this.messageHandlers) {
+        handler(sessionId, message)
+      }
+      return
+    }
+
+    // Unwrap nested messages from spawned process
+    // Format: { type: "assistant"|"user", message: { id, role, content, ... } }
+    let chatMessage = message
+    if (rawMsg.type && rawMsg.message && !rawMsg.role) {
+      chatMessage = rawMsg.message
+    }
+
+    const chat = chatMessage as { role?: string; id?: string; content?: unknown[]; type?: string }
+
+    // Only emit messages that have both 'role' and 'id' (valid chat messages)
+    if (!chat.role || !chat.id) {
+      return
+    }
+
+    // Normalize message to ChatMessage format expected by UI
+    const normalizedMessage = this.normalizeMessage(chat)
+
+    for (const handler of this.messageHandlers) {
+      handler(sessionId, normalizedMessage)
+    }
+  }
+
+  /**
+   * Normalize Claude's message format to ChatMessage format
+   * Claude sends: { type: "message", id, role, content: [{type:"text",text:"..."}], model, usage, ... }
+   * UI expects: { id, role, content: ["string"], timestamp, toolCalls?: [...] }
+   */
+  private normalizeMessage(msg: Record<string, unknown>): Record<string, unknown> {
+    const content = msg.content as unknown[] | undefined
+    const normalizedContent: unknown[] = []
+    const toolCalls: unknown[] = []
+
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        if (typeof block === 'string') {
+          // Already a string, keep as-is
+          normalizedContent.push(block)
+        } else if (block && typeof block === 'object') {
+          const b = block as { type?: string; text?: string; id?: string; name?: string; input?: unknown }
+          if (b.type === 'text' && b.text) {
+            // Convert {type:"text", text:"..."} to just the string
+            normalizedContent.push(b.text)
+          } else if (b.type === 'tool_use' && b.id && b.name) {
+            // Extract tool calls
+            toolCalls.push({
+              id: b.id,
+              name: b.name,
+              input: b.input
+            })
+          } else if (b.type === 'tool_result') {
+            // Tool results go in content for user messages
+            normalizedContent.push(block)
+          } else if (b.type === 'image') {
+            // Keep image blocks as-is
+            normalizedContent.push(block)
+          }
+        }
+      }
+    }
+
+    const normalized: Record<string, unknown> = {
+      id: msg.id,
+      role: msg.role,
+      content: normalizedContent,
+      timestamp: new Date().toISOString()
+    }
+
+    if (toolCalls.length > 0) {
+      normalized.toolCalls = toolCalls
+    }
+
+    return normalized
   }
 
   /**
@@ -561,7 +652,8 @@ export class ClaudeService {
       return
     }
 
-    console.log(`[ClaudeService] Approving ${pendingHook.toolName} via resume for session ${sessionId}`)
+    const toolName = pendingHook.toolName
+    console.log(`[ClaudeService] Approving ${toolName} via retry approach for session ${sessionId}`)
 
     // Mark session as being approved to prevent re-detection during polling
     this.sessionsBeingApproved.add(sessionId)
@@ -569,45 +661,42 @@ export class ClaudeService {
     // Clear the pending hook permission
     this.pendingHookPermissions.delete(sessionId)
 
+    // Craft retry message: for AskUserQuestion send user's answer, otherwise ask to retry
+    const isAskUserQuestion = toolName === 'AskUserQuestion'
+    const retryMessage = isAskUserQuestion && answer
+      ? answer
+      : `The previous permission request for ${toolName} was interrupted. Please retry the operation.`
+
     // Spawn Claude with --resume to connect to the session
     const claude = spawnClaude({
       cwd: projectPath,
       resume: sessionId,
       onMessage: (msg) => {
-        console.log(`[ClaudeService] Resume approval message: type=${msg.type}`)
         this.emitMessage(sessionId, msg)
       },
       onPermissionRequest: (permReq) => {
-        console.log(`[ClaudeService] Resume: got permission request for ${permReq.toolName}`)
-
-        // For AskUserQuestion, send the user's answer as a message instead of approving
-        if (permReq.toolName === 'AskUserQuestion' && answer) {
-          console.log(`[ClaudeService] Sending AskUserQuestion answer: ${answer}`)
-          claude.send(answer)
-          return
-        }
-
-        // Auto-approve other permission requests
-        console.log(`[ClaudeService] Auto-approving ${permReq.toolName}`)
-        claude.sendPermissionResponse(permReq.requestId, true, permReq.input)
+        // For AskUserQuestion, use updatedInput which contains user's answers
+        // For other tools (Write, Bash, etc.), use the original input from the new request
+        const inputToSend = (permReq.toolName === 'AskUserQuestion' && updatedInput)
+          ? updatedInput
+          : permReq.input
+        claude.sendPermissionResponse(permReq.requestId, true, inputToSend)
+        // Emit permission resolved to close the UI popup
+        this.emitPermissionResolved(sessionId, pendingHook.toolUseId)
       }
     })
 
-    // Log stderr for debugging
-    claude.child.stderr?.on('data', (data: Buffer) => {
-      console.log(`[ClaudeService] Resume stderr: ${data.toString().trim()}`)
-    })
+    // Send retry message immediately to trigger Claude to retry the operation
+    claude.send(retryMessage)
 
     // Handle process exit
-    claude.onExit((code) => {
-      console.log(`[ClaudeService] Resume process exited with code ${code}`)
+    claude.onExit(() => {
       this.sessionsBeingApproved.delete(sessionId)
     })
 
     // Timeout after 30 seconds
     setTimeout(() => {
       if (this.sessionsBeingApproved.has(sessionId)) {
-        console.log(`[ClaudeService] Resume approval timeout - killing process`)
         this.sessionsBeingApproved.delete(sessionId)
         claude.child.kill()
       }
