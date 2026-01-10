@@ -631,12 +631,36 @@ export interface SessionData {
 export function readSessionData(cwd: string, sessionId: string): SessionData {
   const messages = readClaudeSession(cwd, sessionId)
 
+  // Find retry messages and track which tools were retried and when
+  // Format: "Retry the <ToolName> tool call now"
+  const retriedTools = new Map<string, string>() // toolName -> retry message timestamp
+  for (const msg of messages) {
+    if (msg.role === 'user' && msg.content) {
+      for (const block of msg.content) {
+        if (typeof block === 'string') {
+          const retryMatch = block.match(/Retry the (\w+) tool call now/)
+          if (retryMatch) {
+            retriedTools.set(retryMatch[1], msg.timestamp || '')
+          }
+        }
+      }
+    }
+  }
+
   // Extract pending tool calls from messages (tool calls without results)
+  // Exclude tool calls that appear BEFORE a retry message for the same tool
   const pendingToolCalls: PendingToolCall[] = []
   for (const msg of messages) {
     if (msg.toolCalls) {
       for (const tool of msg.toolCalls) {
         if (tool.result === undefined) {
+          // Check if this tool was retried after this message
+          const retryTimestamp = retriedTools.get(tool.name)
+          if (retryTimestamp && msg.timestamp && msg.timestamp < retryTimestamp) {
+            // This tool call appears before its retry message - skip it
+            continue
+          }
+
           pendingToolCalls.push({
             id: tool.id,
             name: tool.name,

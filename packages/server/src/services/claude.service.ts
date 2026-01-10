@@ -888,6 +888,7 @@ export class ClaudeService {
 
     // Check session file directly for any pending tool calls we haven't seen
     // This handles the case where user disconnects and reconnects while a permission is pending
+    // Note: readSessionData() already filters out tool calls that were handled via retry
     const projectPath = findSessionProject(sessionId)
     if (projectPath) {
       try {
@@ -897,16 +898,6 @@ export class ClaudeService {
             if (seenToolIds.has(tool.id)) continue
             if (this.deniedPermissionIds.has(tool.id)) continue // Skip denied permissions
             if (this.handledViaRetryIds.has(tool.id)) continue // Skip already handled via retry
-
-            // Skip if there are messages AFTER this tool call (conversation moved on via retry)
-            const toolTimestamp = new Date(tool.timestamp)
-            const hasNewerMessages = sessionData.messages.some(msg => {
-              const msgTimestamp = new Date((msg as { timestamp?: string }).timestamp || 0)
-              return msgTimestamp > toolTimestamp
-            })
-            if (hasNewerMessages) {
-              continue // Skip - conversation has newer messages after this tool call
-            }
 
             permissions.push({
               toolName: tool.name,
@@ -972,27 +963,16 @@ export class ClaudeService {
       let toolName = 'Permission Required'
       let toolInput: Record<string, unknown> = { message }
       let toolUseId = `hook-${sessionId}`
-      let toolTimestamp: Date | null = null
 
       if (cwd && sessionId) {
         try {
+          // readSessionData() already filters out tool calls that were handled via retry
           const sessionData = readSessionData(cwd, sessionId)
           if (sessionData.pendingToolCalls.length > 0) {
             const pendingTool = sessionData.pendingToolCalls[sessionData.pendingToolCalls.length - 1]
             toolName = pendingTool.name
             toolInput = pendingTool.input as Record<string, unknown>
             toolUseId = pendingTool.id
-            toolTimestamp = new Date(pendingTool.timestamp)
-
-            // Skip if there are messages AFTER this tool call (conversation continued via retry)
-            const hasNewerMessages = sessionData.messages.some(msg => {
-              const msgTimestamp = new Date((msg as { timestamp?: string }).timestamp || 0)
-              return toolTimestamp && msgTimestamp > toolTimestamp
-            })
-            if (hasNewerMessages) {
-              console.log(`[ClaudeService] Skipping hook notification - conversation has newer messages`)
-              return
-            }
           }
         } catch (err) {
           console.log(`[ClaudeService] Could not read session data: ${(err as Error).message}`)
