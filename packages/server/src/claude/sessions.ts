@@ -453,6 +453,10 @@ export function readClaudeSession(cwd: string, sessionId: string): ChatMessage[]
   }
 
   // Second pass: build messages with tool results attached
+  // Track if we just saw a retry message to skip the following assistant message
+  let skipNextAssistant = false
+  let lastRetryToolName: string | null = null
+
   for (const line of lines) {
     try {
       const entry = JSON.parse(line) as ClaudeMessage
@@ -469,6 +473,44 @@ export function readClaudeSession(cwd: string, sessionId: string): ChatMessage[]
 
       if (!entry.message) {
         continue
+      }
+
+      // Check if this is a retry instruction message
+      if (entry.type === 'user' && entry.message?.content) {
+        const content = entry.message.content
+        let messageText = ''
+        if (typeof content === 'string') {
+          messageText = content
+        } else if (Array.isArray(content)) {
+          const textBlock = content.find((c: ContentBlock) => c.type === 'text' && c.text)
+          if (textBlock?.text) {
+            messageText = textBlock.text
+          }
+        }
+        // Match "Retry the <ToolName> tool call now"
+        const retryMatch = messageText.match(/Retry the (\w+) tool call now/)
+        if (retryMatch) {
+          skipNextAssistant = true
+          lastRetryToolName = retryMatch[1]
+          continue // Skip this retry user message
+        }
+      }
+
+      // Skip assistant message that contains the retried tool call
+      if (skipNextAssistant && entry.type === 'assistant' && lastRetryToolName) {
+        skipNextAssistant = false
+        // Check if this assistant message contains the retried tool
+        const content = entry.message?.content
+        if (Array.isArray(content)) {
+          const hasRetryTool = content.some((c: ContentBlock) =>
+            c.type === 'tool_use' && c.name === lastRetryToolName
+          )
+          if (hasRetryTool) {
+            lastRetryToolName = null
+            continue // Skip this assistant message (it's the retry response)
+          }
+        }
+        lastRetryToolName = null
       }
 
       // Skip if we've already seen this message (Claude sends multiple updates)

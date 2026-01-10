@@ -276,9 +276,10 @@ export class ClaudeService {
     // Filter out our internal retry messages (they get saved to session file and read back)
     const normalizedContent = normalizedMessage.content as unknown[] | undefined
     if (normalizedContent && normalizedContent.length > 0) {
-      const firstContent = normalizedContent[0]
-      if (typeof firstContent === 'string' && firstContent.includes('Retry the') && firstContent.includes('tool call now')) {
-        return // Don't emit retry instruction messages
+      for (const item of normalizedContent) {
+        if (typeof item === 'string' && item.includes('Retry the') && item.includes('tool call now')) {
+          return // Don't emit retry instruction messages
+        }
       }
     }
 
@@ -677,17 +678,19 @@ export class ClaudeService {
     this.pendingHookPermissions.delete(sessionId)
 
     // Craft retry message that instructs Claude to just retry the tool without extra commentary
-    const retryMessage = `Retry the ${toolName} tool call now. Do not add any text, just use the tool.`
+    const retryMessage = `Retry the ${toolName} tool call now. Do not add any text, just use the tool. Ask Exact same question/tool call.`
 
     // Track that we sent a retry message so we can filter it from UI
     let skipNextUserMessage = true
+    // Also skip the first assistant message that contains the retried tool
+    let skipNextAssistantWithTool = true
 
     // Spawn Claude with --resume to connect to the session
     const claude = spawnClaude({
       cwd: projectPath,
       resume: sessionId,
       onMessage: (msg) => {
-        const rawMsg = msg as { type?: string; message?: { role?: string } }
+        const rawMsg = msg as { type?: string; message?: { role?: string; content?: unknown[] }; role?: string; content?: unknown[] }
         // Skip the retry message we sent (it's a user message)
         if (skipNextUserMessage) {
           const isUserMsg = rawMsg.type === 'user' ||
@@ -695,6 +698,26 @@ export class ClaudeService {
           if (isUserMsg) {
             skipNextUserMessage = false
             return // Don't emit this message to UI
+          }
+        }
+        // Skip the first assistant message that contains the retried tool
+        if (skipNextAssistantWithTool) {
+          const isAssistantMsg = rawMsg.type === 'assistant' ||
+            (rawMsg.message && rawMsg.message.role === 'assistant') ||
+            rawMsg.role === 'assistant'
+          if (isAssistantMsg) {
+            // Check if this message contains the retried tool
+            const content = (rawMsg.content || rawMsg.message?.content) as Array<{ type?: string; name?: string }> | undefined
+            if (Array.isArray(content)) {
+              const hasRetryTool = content.some((block) =>
+                block.type === 'tool_use' && block.name === toolName
+              )
+              if (hasRetryTool) {
+                skipNextAssistantWithTool = false
+                return // Don't emit this message to UI (it's the retry tool call)
+              }
+            }
+            skipNextAssistantWithTool = false
           }
         }
         this.emitMessage(sessionId, msg)
