@@ -299,7 +299,7 @@ export function ChatView({ messages, loading, sending, isProcessing, pendingPerm
                     fetchNextPage()
                   }
                 }}
-                className="text-sm px-4 py-2 rounded-lg bg-claude-surface hover:bg-claude-border/20 text-claude-text-muted hover:text-claude-text transition-colors border border-claude-border"
+                className="text-sm px-4 py-2 rounded-lg bg-claude-surface hover:bg-claude-border/20 text-claude-text-muted hover:text-claude-text transition-colors border border-claude-border whitespace-nowrap"
               >
                 Load More
                 {totalMessages && (
