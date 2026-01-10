@@ -112,7 +112,11 @@ function AppContent() {
     abortSession,
     clearForNewSession,
     refresh,
-    isRefreshing
+    isRefreshing,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+    totalMessages
   } = useSessions(API_URL, settings, handleModelChange)
 
   // Sync URL session with state
@@ -184,6 +188,10 @@ function AppContent() {
         onPermissionResponse={respondToPermission}
         onSettingsChange={handleSettingsChange}
         onAbort={abortSession}
+        hasNextPage={hasNextPage}
+        isFetchingNextPage={isFetchingNextPage}
+        fetchNextPage={fetchNextPage}
+        totalMessages={totalMessages}
       />
     )
   }

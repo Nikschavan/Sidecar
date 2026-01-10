@@ -32,6 +32,10 @@ interface ChatScreenProps {
   onPermissionResponse: (allow: boolean, options?: { answers?: Record<string, string[]>; allowAll?: boolean; customMessage?: string }) => void
   onSettingsChange?: (settings: SessionSettings) => void
   onAbort?: () => void
+  hasNextPage?: boolean
+  isFetchingNextPage?: boolean
+  fetchNextPage?: () => void
+  totalMessages?: number
 }
 
 export function ChatScreen({
@@ -48,7 +52,11 @@ export function ChatScreen({
   onBack,
   onPermissionResponse,
   onSettingsChange,
-  onAbort
+  onAbort,
+  hasNextPage,
+  isFetchingNextPage,
+  fetchNextPage,
+  totalMessages
 }: ChatScreenProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [showTerminalPopup, setShowTerminalPopup] = useState(false)
@@ -205,6 +213,10 @@ export function ChatScreen({
         isProcessing={isProcessing}
         pendingPermission={pendingPermission}
         onPermissionResponse={onPermissionResponse}
+        hasNextPage={hasNextPage}
+        isFetchingNextPage={isFetchingNextPage}
+        fetchNextPage={fetchNextPage}
+        totalMessages={totalMessages}
       />
 
       {/* Input bar */}

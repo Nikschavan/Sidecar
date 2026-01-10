@@ -417,8 +417,18 @@ interface ClaudeMessage {
 
 /**
  * Read messages from a Claude session file
+ * @param cwd - Working directory
+ * @param sessionId - Session ID
+ * @param options - Optional pagination settings
+ * @param options.limit - Maximum number of messages to return (default: all)
+ * @param options.fromEnd - If true, return the last N messages (default: false)
+ * @param options.offset - Number of messages to skip from the end (for scrollback, default: 0)
  */
-export function readClaudeSession(cwd: string, sessionId: string): ChatMessage[] {
+export function readClaudeSession(
+  cwd: string,
+  sessionId: string,
+  options: { limit?: number; fromEnd?: boolean; offset?: number } = {}
+): ChatMessage[] {
   const projectDir = getProjectDir(cwd)
   const sessionFile = join(projectDir, `${sessionId}.jsonl`)
 
@@ -604,7 +614,63 @@ export function readClaudeSession(cwd: string, sessionId: string): ChatMessage[]
     }
   }
 
+  // Apply pagination if specified
+  if (options.limit && options.limit > 0) {
+    const offset = options.offset || 0
+
+    if (options.fromEnd) {
+      // Return messages from the end with optional offset for scrollback
+      // Examples with 1000 total messages:
+      // - limit=50, offset=0   → messages.slice(-50)        → messages 950-1000 (most recent 50)
+      // - limit=50, offset=50  → messages.slice(-100, -50)  → messages 900-950  (previous 50)
+      // - limit=50, offset=100 → messages.slice(-150, -100) → messages 850-900  (next previous 50)
+      const start = -(offset + options.limit)
+      const end = offset > 0 ? -offset : undefined
+      return messages.slice(start, end)
+    } else {
+      // Return the first N messages with optional offset
+      const start = offset
+      const end = offset + options.limit
+      return messages.slice(start, end)
+    }
+  }
+
   return messages
+}
+
+/**
+ * Get the total number of messages in a session (fast count)
+ * Useful for pagination metadata
+ */
+export function getSessionMessageCount(cwd: string, sessionId: string): number {
+  const projectDir = getProjectDir(cwd)
+  const sessionFile = join(projectDir, `${sessionId}.jsonl`)
+
+  if (!existsSync(sessionFile)) {
+    return 0
+  }
+
+  const content = readFileSync(sessionFile, 'utf-8')
+  const lines = content.trim().split('\n')
+  let count = 0
+  const seenIds = new Set<string>()
+
+  for (const line of lines) {
+    try {
+      const entry = JSON.parse(line) as ClaudeMessage
+      // Count user and assistant messages (not meta, not duplicates)
+      if ((entry.type === 'user' || entry.type === 'assistant') && entry.uuid && !entry.isMeta) {
+        if (!seenIds.has(entry.uuid)) {
+          seenIds.add(entry.uuid)
+          count++
+        }
+      }
+    } catch {
+      // Skip malformed lines
+    }
+  }
+
+  return count
 }
 
 /**

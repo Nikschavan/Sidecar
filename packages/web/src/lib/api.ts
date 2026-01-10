@@ -25,8 +25,11 @@ export interface SessionMessagesResponse {
   sessionId: string
   projectPath: string
   messageCount: number
+  totalMessages: number
+  offset: number
   messages: ChatMessage[]
   isActive?: boolean
+  isPartial?: boolean
 }
 
 // API functions
@@ -52,9 +55,15 @@ export async function fetchSessions(apiUrl: string, projectPath: string): Promis
 
 export async function fetchSessionMessages(
   apiUrl: string,
-  sessionId: string
+  sessionId: string,
+  options: { limit?: number; offset?: number } = {}
 ): Promise<SessionMessagesResponse> {
-  const res = await fetch(`${apiUrl}/api/claude/sessions/${sessionId}`, {
+  const params = new URLSearchParams()
+  if (options.limit !== undefined) params.set('limit', String(options.limit))
+  if (options.offset !== undefined) params.set('offset', String(options.offset))
+
+  const url = `${apiUrl}/api/claude/sessions/${sessionId}${params.toString() ? `?${params}` : ''}`
+  const res = await fetch(url, {
     headers: getAuthHeaders()
   })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)

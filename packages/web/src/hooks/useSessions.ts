@@ -46,6 +46,10 @@ export function useSessions(
     messages: fetchedMessages,
     isActive,
     isLoading: messagesLoading,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+    totalMessages,
   } = useSessionMessages(apiUrl, currentSessionId)
 
   // Clear pending initial message once real messages are loaded
@@ -222,5 +226,10 @@ export function useSessions(
     clearForNewSession,
     refresh: refreshSessions,
     isRefreshing: sessionsRefreshing,
+    // Infinite scroll props
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+    totalMessages,
   }
 }

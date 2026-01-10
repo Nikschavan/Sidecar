@@ -149,13 +149,19 @@ interface ChatViewProps {
   isProcessing?: boolean
   pendingPermission?: PendingPermission | null
   onPermissionResponse?: (allow: boolean, options?: { answers?: Record<string, string[]>; allowAll?: boolean; customMessage?: string }) => void
+  hasNextPage?: boolean
+  isFetchingNextPage?: boolean
+  fetchNextPage?: () => void
+  totalMessages?: number
 }
 
-export function ChatView({ messages, loading, sending, isProcessing, pendingPermission, onPermissionResponse }: ChatViewProps) {
+export function ChatView({ messages, loading, sending, isProcessing, pendingPermission, onPermissionResponse, hasNextPage, isFetchingNextPage, fetchNextPage, totalMessages }: ChatViewProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const userScrolledUp = useRef(false)
   const prevMessageCount = useRef(0)
+  const prevScrollHeight = useRef(0)
+  const topSentinelRef = useRef<HTMLDivElement>(null)
 
   const handleScroll = useCallback(() => {
     const container = containerRef.current
@@ -166,17 +172,65 @@ export function ChatView({ messages, loading, sending, isProcessing, pendingPerm
     userScrolledUp.current = !isNearBottom
   }, [])
 
+  // Intersection Observer for auto-loading when sentinel becomes visible
   useEffect(() => {
+    if (!topSentinelRef.current || !hasNextPage || !fetchNextPage) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0]
+        if (entry.isIntersecting && !isFetchingNextPage) {
+          console.log('[ChatView] Top sentinel visible, loading more messages...')
+          // Store scroll position info before loading
+          const container = containerRef.current
+          if (container) {
+            prevScrollHeight.current = container.scrollHeight
+          }
+          fetchNextPage()
+        }
+      },
+      { threshold: 0.1, rootMargin: '100px' } // Trigger slightly before visible
+    )
+
+    observer.observe(topSentinelRef.current)
+
+    return () => observer.disconnect()
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const messageCountIncreased = messages.length > prevMessageCount.current
+    const messageCountChanged = messages.length !== prevMessageCount.current
+    const wasLoadingMore = prevMessageCount.current > 0 && prevScrollHeight.current > 0
+
     // Reset scroll state when switching sessions (message count drops significantly)
     if (messages.length < prevMessageCount.current - 1) {
       userScrolledUp.current = false
+      prevScrollHeight.current = 0
     }
-    prevMessageCount.current = messages.length
 
-    // Only auto-scroll if user hasn't scrolled up
-    if (!userScrolledUp.current) {
+    // If we loaded more messages (scrollback), maintain scroll position
+    if (messageCountIncreased && wasLoadingMore) {
+      // Wait for DOM to update
+      requestAnimationFrame(() => {
+        const newScrollHeight = container.scrollHeight
+        const scrollHeightDiff = newScrollHeight - prevScrollHeight.current
+
+        // Adjust scroll position to maintain visual position
+        container.scrollTop += scrollHeightDiff
+        console.log('[ChatView] Maintained scroll position after loading', { oldHeight: prevScrollHeight.current, newHeight: newScrollHeight, diff: scrollHeightDiff })
+
+        prevScrollHeight.current = 0
+      })
+    }
+    // Only auto-scroll to bottom if user hasn't scrolled up
+    else if (!userScrolledUp.current && messageCountChanged) {
       bottomRef.current?.scrollIntoView({ behavior: 'auto' })
     }
+
+    prevMessageCount.current = messages.length
   }, [messages])
 
   if (loading && messages.length === 0) {
@@ -206,6 +260,44 @@ export function ChatView({ messages, loading, sending, isProcessing, pendingPerm
       style={{ paddingTop: 'calc(max(env(safe-area-inset-top), 12px) + 48px)' }}
     >
       <div className="max-w-3xl mx-auto space-y-6">
+        {/* Intersection Observer sentinel + Load More indicator */}
+        {hasNextPage && (
+          <div ref={topSentinelRef} className="flex justify-center pt-2 pb-4">
+            {isFetchingNextPage ? (
+              <div className="text-sm text-claude-text-muted flex items-center gap-2">
+                <div className="w-4 h-4 border-2 border-claude-coral border-t-transparent rounded-full animate-spin"></div>
+                Loading older messages...
+              </div>
+            ) : (
+              <button
+                onClick={() => {
+                  const container = containerRef.current
+                  if (container && fetchNextPage) {
+                    prevScrollHeight.current = container.scrollHeight
+                    fetchNextPage()
+                  }
+                }}
+                className="text-sm px-4 py-2 rounded-lg bg-claude-surface hover:bg-claude-border/20 text-claude-text-muted hover:text-claude-text transition-colors border border-claude-border"
+              >
+                Load More
+                {totalMessages && (
+                  <span className="ml-1.5 text-xs opacity-70">
+                    ({messages.length} of {totalMessages})
+                  </span>
+                )}
+              </button>
+            )}
+          </div>
+        )}
+
+        {!hasNextPage && messages.length > 50 && (
+          <div className="flex justify-center pt-2 pb-4">
+            <div className="text-xs text-claude-text-muted opacity-50">
+              ✓ All messages loaded
+            </div>
+          </div>
+        )}
+
         {messages.map((msg) => (
           <MessageBubble key={msg.id} message={msg} />
         ))}

@@ -13,7 +13,8 @@ import {
   findSessionProject,
   getSessionMetadata,
   isSessionActive,
-  readSessionData
+  readSessionData,
+  getSessionMessageCount
 } from '../claude/sessions.js'
 import { claudeService } from '../services/claude.service.js'
 
@@ -93,8 +94,19 @@ claudeRoutes.get('/sessions', (c) => {
 // Get Claude session messages (auto-finds project)
 claudeRoutes.get('/sessions/:sessionId', (c) => {
   const sessionId = c.req.param('sessionId')
+  const limitParam = c.req.query('limit')
+  const offsetParam = c.req.query('offset')
+  const limit = limitParam ? parseInt(limitParam, 10) : 50 // Default to 50 messages
+  const offset = offsetParam ? parseInt(offsetParam, 10) : 0 // Default to 0 (most recent)
+
   const projectPath = findSessionProject(sessionId) || CWD
-  const messages = readClaudeSession(projectPath, sessionId)
+  const totalMessages = getSessionMessageCount(projectPath, sessionId)
+  const messages = readClaudeSession(projectPath, sessionId, {
+    limit: limit > 0 ? limit : undefined,
+    offset,
+    fromEnd: true  // Always get most recent messages
+  })
+
   const hasActiveProcess = !!claudeService.getActiveProcess(sessionId)
   const fileIsActive = isSessionActive(projectPath, sessionId, 5)
   const isActive = hasActiveProcess || fileIsActive
@@ -103,8 +115,11 @@ claudeRoutes.get('/sessions/:sessionId', (c) => {
     sessionId,
     projectPath,
     messageCount: messages.length,
+    totalMessages,  // Total available messages
+    offset,         // Current offset (for frontend to track position)
     messages,
-    isActive
+    isActive,
+    isPartial: limit > 0  // Indicate if this is a partial response
   })
 })
 
@@ -146,12 +161,27 @@ claudeRoutes.get('/current', (c) => {
   if (!sessionId) {
     return c.json({ error: 'No Claude sessions found' }, 404)
   }
-  const messages = readClaudeSession(CWD, sessionId)
+
+  const limitParam = c.req.query('limit')
+  const offsetParam = c.req.query('offset')
+  const limit = limitParam ? parseInt(limitParam, 10) : 50 // Default to 50 messages
+  const offset = offsetParam ? parseInt(offsetParam, 10) : 0 // Default to 0 (most recent)
+
+  const totalMessages = getSessionMessageCount(CWD, sessionId)
+  const messages = readClaudeSession(CWD, sessionId, {
+    limit: limit > 0 ? limit : undefined,
+    offset,
+    fromEnd: true
+  })
+
   return c.json({
     sessionId,
     cwd: CWD,
     messageCount: messages.length,
-    messages
+    totalMessages,
+    offset,
+    messages,
+    isPartial: limit > 0
   })
 })
 

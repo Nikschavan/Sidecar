@@ -11,7 +11,6 @@ import { queryKeys } from '../lib/queryKeys'
 import { getAuthenticatedSseUrl } from '../utils/auth'
 import { abortSession, respondToPermission } from '../lib/api'
 import type { ChatMessage } from '@sidecar/shared'
-import type { SessionMessagesResponse } from '../lib/api'
 
 export interface PendingPermission {
   requestId: string
@@ -69,47 +68,64 @@ export function useSessionSSE({
     onToolResolvedRef.current = onToolResolved
   }, [currentSessionId, onPermissionRequest, onPermissionResolved, onSessionAborted, onProcessingComplete, onToolResolved])
 
-  // Update React Query cache from SSE message
+  // Update React Query cache from SSE message (for infinite query)
   const updateMessagesCache = useCallback((message: ChatMessage, sessionId: string) => {
-    queryClient.setQueryData<SessionMessagesResponse>(
+    queryClient.setQueryData(
       queryKeys.messages(sessionId),
-      (old) => {
+      (old: any) => {
         // Initialize cache if it doesn't exist (hook-based sessions)
         if (!old) {
           return {
-            sessionId,
-            projectPath: '',  // Will be populated on next fetch
-            messageCount: 1,
-            messages: [message],
-            isActive: true,
+            pages: [{
+              sessionId,
+              projectPath: '',  // Will be populated on next fetch
+              messageCount: 1,
+              totalMessages: 1,
+              offset: 0,
+              messages: [message],
+              isActive: true,
+              isPartial: false,
+            }],
+            pageParams: [0],
           }
         }
+
+        // Update the first page (most recent messages)
+        const updatedPages = [...old.pages]
+        const firstPage = updatedPages[0]
+
+        if (!firstPage) return old
 
         // Skip check if message has no ID (system messages) - always add them
         const messageId = message.id
-        const exists = messageId ? old.messages.some(m => m.id === messageId) : false
+        const exists = messageId ? firstPage.messages.some((m: ChatMessage) => m.id === messageId) : false
+
         if (exists) {
           // Update existing message (streaming updates)
-          return {
-            ...old,
-            messages: old.messages.map(m =>
+          updatedPages[0] = {
+            ...firstPage,
+            messages: firstPage.messages.map((m: ChatMessage) =>
               m.id === message.id ? message : m
             ),
           }
-        }
+        } else {
+          // Remove temp messages when receiving real user message
+          let filtered = firstPage.messages
+          if (message.role === 'user') {
+            filtered = firstPage.messages.filter((m: ChatMessage) => !m.id?.startsWith('temp-'))
+          }
 
-        // Remove temp messages when receiving real user message
-        if (message.role === 'user') {
-          const filtered = old.messages.filter(m => !m.id?.startsWith('temp-'))
-          return {
-            ...old,
+          updatedPages[0] = {
+            ...firstPage,
             messages: [...filtered, message],
+            messageCount: filtered.length + 1,
+            totalMessages: firstPage.totalMessages + 1,
           }
         }
 
         return {
           ...old,
-          messages: [...old.messages, message],
+          pages: updatedPages,
         }
       }
     )
