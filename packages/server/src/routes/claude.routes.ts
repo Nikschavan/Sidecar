@@ -188,7 +188,7 @@ claudeRoutes.post('/sessions/:sessionId/send', async (c) => {
 claudeRoutes.post('/sessions/:sessionId/permission', async (c) => {
   const sessionId = c.req.param('sessionId')
   const body = await c.req.json().catch(() => ({}))
-  const { requestId, allow, allowAll, toolName, updatedInput } = body
+  const { requestId, allow, allowAll, toolName, updatedInput, answer } = body
 
   const pendingPermission = claudeService.getPendingPermission(sessionId)
   const reqId = requestId || pendingPermission?.requestId
@@ -200,7 +200,8 @@ claudeRoutes.post('/sessions/:sessionId/permission', async (c) => {
   const success = claudeService.respondToPermission(sessionId, reqId, allow, {
     allowAll,
     toolName,
-    updatedInput
+    updatedInput,
+    answer  // For AskUserQuestion: the user's selected answer
   })
   if (!success) {
     return c.json({ error: 'No active process waiting for permission' }, 404)

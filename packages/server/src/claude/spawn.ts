@@ -115,6 +115,7 @@ export function spawnClaude(options: SpawnOptions): ClaudeProcess {
           input: msg.request.input,
           permissionSuggestions: msg.request.permission_suggestions
         }
+
         for (const cb of permissionCallbacks) {
           cb(permReq)
         }

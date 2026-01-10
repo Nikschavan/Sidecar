@@ -87,6 +87,10 @@ export class ClaudeService {
   // Track sessions being approved via resume
   private sessionsBeingApproved = new Set<string>()
 
+  // Track pending approvals - when user approves, auto-approve follow-up requests with new request_id
+  // Key: sessionId, Value: { toolName, input, expiresAt }
+  private pendingApprovals = new Map<string, { toolName: string; input: Record<string, unknown>; expiresAt: number }>()
+
   // Track denied/cancelled permission IDs to prevent re-sending on reconnection
   private deniedPermissionIds = new Set<string>()
 
@@ -190,6 +194,19 @@ export class ClaudeService {
   }
 
   /**
+   * Clear expired pending approvals
+   */
+  private clearExpiredPendingApprovals(): void {
+    const now = Date.now()
+    for (const [sessionId, approval] of this.pendingApprovals) {
+      if (now >= approval.expiresAt) {
+        console.log(`[ClaudeService] Clearing expired pending approval for session ${sessionId}`)
+        this.pendingApprovals.delete(sessionId)
+      }
+    }
+  }
+
+  /**
    * Register a message handler
    */
   onMessage(handler: MessageHandler): void {
@@ -276,6 +293,17 @@ export class ClaudeService {
         onPermissionRequest: (permReq) => {
           console.log(`[ClaudeService] Permission request for ${permReq.toolName}`)
           if (newSessionId) {
+            // Check for pending approval (user already approved, but new request_id generated)
+            const pendingApproval = this.pendingApprovals.get(newSessionId)
+            if (pendingApproval &&
+                pendingApproval.toolName === permReq.toolName &&
+                Date.now() < pendingApproval.expiresAt) {
+              console.log(`[ClaudeService] Auto-approving ${permReq.toolName} (pending approval with new request_id)`)
+              this.pendingApprovals.delete(newSessionId)
+              claude.sendPermissionResponse(permReq.requestId, true, permReq.input)
+              return
+            }
+
             this.emitPermissionRequest(newSessionId, {
               toolName: permReq.toolName,
               toolUseId: permReq.toolUseId,
@@ -356,10 +384,21 @@ export class ClaudeService {
         onPermissionRequest: (permReq) => {
           console.log(`[ClaudeService] Permission request for ${permReq.toolName}`)
 
-          // Check if tool is already allowed
+          // Check if tool is already allowed (Allow All)
           const allowedTools = this.allowedToolsBySession.get(sessionId)
           if (allowedTools?.has(permReq.toolName)) {
-            console.log(`[ClaudeService] Auto-approving ${permReq.toolName}`)
+            console.log(`[ClaudeService] Auto-approving ${permReq.toolName} (allowed tool)`)
+            claude.sendPermissionResponse(permReq.requestId, true, permReq.input)
+            return
+          }
+
+          // Check for pending approval (user already approved, but new request_id generated)
+          const pendingApproval = this.pendingApprovals.get(sessionId)
+          if (pendingApproval &&
+              pendingApproval.toolName === permReq.toolName &&
+              Date.now() < pendingApproval.expiresAt) {
+            console.log(`[ClaudeService] Auto-approving ${permReq.toolName} (pending approval with new request_id)`)
+            this.pendingApprovals.delete(sessionId)
             claude.sendPermissionResponse(permReq.requestId, true, permReq.input)
             return
           }
@@ -440,6 +479,7 @@ export class ClaudeService {
       allowAll?: boolean
       toolName?: string
       updatedInput?: Record<string, unknown>
+      answer?: string  // For AskUserQuestion: the user's selected answer
     } = {}
   ): boolean {
     console.log(`[ClaudeService] Permission response: ${allow ? 'ALLOW' : 'DENY'}`)
@@ -461,7 +501,23 @@ export class ClaudeService {
     // Handle active process permission (spawned by Sidecar)
     const activeProcess = this.activeProcesses.get(sessionId)
     if (activeProcess) {
-      activeProcess.claude.sendPermissionResponse(requestId, allow, options.updatedInput)
+      console.log(`[ClaudeService] Sending permission response to active process ${sessionId}`)
+
+      // Track this approval so follow-up requests with NEW request_id are auto-approved
+      // Get toolName from options or from pendingPermission
+      const toolNameToTrack = options.toolName || activeProcess.pendingPermission?.toolName
+      const inputToTrack = options.updatedInput || activeProcess.pendingPermission?.input || {}
+
+      if (allow && toolNameToTrack) {
+        this.pendingApprovals.set(sessionId, {
+          toolName: toolNameToTrack,
+          input: inputToTrack,
+          expiresAt: Date.now() + 30000  // 30 second expiry
+        })
+        console.log(`[ClaudeService] Stored pending approval for ${toolNameToTrack}`)
+      }
+
+      activeProcess.claude.sendPermissionResponse(requestId, allow, inputToTrack)
       activeProcess.pendingPermission = null
       return true
     }
@@ -470,7 +526,7 @@ export class ClaudeService {
     const pendingHook = this.pendingHookPermissions.get(sessionId)
     if (pendingHook && allow) {
       console.log(`[ClaudeService] Responding to hook permission via resume`)
-      this.respondToHookPermission(sessionId, pendingHook, options.updatedInput)
+      this.respondToHookPermission(sessionId, pendingHook, options.updatedInput, options.answer)
       return true
     }
 
@@ -496,7 +552,8 @@ export class ClaudeService {
   private respondToHookPermission(
     sessionId: string,
     pendingHook: PendingHookPermission,
-    updatedInput?: Record<string, unknown>
+    updatedInput?: Record<string, unknown>,
+    answer?: string  // For AskUserQuestion: the user's selected answer
   ): void {
     const projectPath = findSessionProject(sessionId)
     if (!projectPath) {
@@ -521,8 +578,17 @@ export class ClaudeService {
         this.emitMessage(sessionId, msg)
       },
       onPermissionRequest: (permReq) => {
-        // Auto-approve any permission request that comes through during resume
-        console.log(`[ClaudeService] Resume: got permission request for ${permReq.toolName}, auto-approving`)
+        console.log(`[ClaudeService] Resume: got permission request for ${permReq.toolName}`)
+
+        // For AskUserQuestion, send the user's answer as a message instead of approving
+        if (permReq.toolName === 'AskUserQuestion' && answer) {
+          console.log(`[ClaudeService] Sending AskUserQuestion answer: ${answer}`)
+          claude.send(answer)
+          return
+        }
+
+        // Auto-approve other permission requests
+        console.log(`[ClaudeService] Auto-approving ${permReq.toolName}`)
         claude.sendPermissionResponse(permReq.requestId, true, permReq.input)
       }
     })
@@ -531,13 +597,6 @@ export class ClaudeService {
     claude.child.stderr?.on('data', (data: Buffer) => {
       console.log(`[ClaudeService] Resume stderr: ${data.toString().trim()}`)
     })
-
-    // Send a nudge message to trigger Claude to continue
-    // The resumed process may be waiting for input
-    setTimeout(() => {
-      console.log(`[ClaudeService] Sending continue nudge to resumed Claude`)
-      claude.send('continue')
-    }, 1000)
 
     // Handle process exit
     claude.onExit((code) => {
@@ -793,6 +852,9 @@ export class ClaudeService {
    * Poll watched sessions for changes (called on interval)
    */
   pollWatchedSessions(): void {
+    // Clean up any expired pending approvals
+    this.clearExpiredPendingApprovals()
+
     for (const [sessionId, watchedSession] of this.watchedSessions) {
       // Skip if we're currently handling a permission approval via resume
       if (this.sessionsBeingApproved.has(sessionId)) {
