@@ -289,7 +289,7 @@ async function main(): Promise<void> {
   }
 
   if (values.version) {
-    console.log('sidecar 0.1.0')
+    console.log('sidecar 0.0.2')
     return
   }
 
