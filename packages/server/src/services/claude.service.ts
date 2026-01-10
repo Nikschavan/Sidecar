@@ -15,6 +15,17 @@ import {
 import type { ImageBlock } from '@sidecar/shared'
 
 /**
+ * Tools that never require permission prompts
+ * These are internal/orchestration tools that Claude executes automatically
+ * without needing user approval (regardless of permission mode)
+ */
+const PERMISSION_FREE_TOOLS = new Set([
+  'Task',           // Subagent invocation - runs automatically
+  'TodoWrite',      // Internal task tracking
+  'TaskOutput',     // Getting output from background tasks
+])
+
+/**
  * Active Claude process with associated state
  */
 export interface ActiveProcess {
@@ -910,6 +921,7 @@ export class ClaudeService {
             if (seenToolIds.has(tool.id)) continue
             if (this.deniedPermissionIds.has(tool.id)) continue // Skip denied permissions
             if (this.handledViaRetryIds.has(tool.id)) continue // Skip already handled via retry
+            if (PERMISSION_FREE_TOOLS.has(tool.name)) continue // Skip tools that don't need permission
 
             permissions.push({
               toolName: tool.name,
