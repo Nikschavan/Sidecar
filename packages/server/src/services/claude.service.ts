@@ -94,6 +94,9 @@ export class ClaudeService {
   // Track denied/cancelled permission IDs to prevent re-sending on reconnection
   private deniedPermissionIds = new Set<string>()
 
+  // Track permission IDs handled via retry approach (don't show as pending after reload)
+  private handledViaRetryIds = new Set<string>()
+
   // Track permission timeouts (requestId -> timeout handle)
   private permissionTimeouts = new Map<string, NodeJS.Timeout>()
 
@@ -269,6 +272,15 @@ export class ClaudeService {
 
     // Normalize message to ChatMessage format expected by UI
     const normalizedMessage = this.normalizeMessage(chat)
+
+    // Filter out our internal retry messages (they get saved to session file and read back)
+    const normalizedContent = normalizedMessage.content as unknown[] | undefined
+    if (normalizedContent && normalizedContent.length > 0) {
+      const firstContent = normalizedContent[0]
+      if (typeof firstContent === 'string' && firstContent.includes('Retry the') && firstContent.includes('tool call now')) {
+        return // Don't emit retry instruction messages
+      }
+    }
 
     for (const handler of this.messageHandlers) {
       handler(sessionId, normalizedMessage)
@@ -658,20 +670,33 @@ export class ClaudeService {
     // Mark session as being approved to prevent re-detection during polling
     this.sessionsBeingApproved.add(sessionId)
 
+    // Mark this permission as handled via retry (so it doesn't show as pending after reload)
+    this.handledViaRetryIds.add(pendingHook.toolUseId)
+
     // Clear the pending hook permission
     this.pendingHookPermissions.delete(sessionId)
 
-    // Craft retry message: for AskUserQuestion send user's answer, otherwise ask to retry
-    const isAskUserQuestion = toolName === 'AskUserQuestion'
-    const retryMessage = isAskUserQuestion && answer
-      ? answer
-      : `The previous permission request for ${toolName} was interrupted. Please retry the operation.`
+    // Craft retry message that instructs Claude to just retry the tool without extra commentary
+    const retryMessage = `Retry the ${toolName} tool call now. Do not add any text, just use the tool.`
+
+    // Track that we sent a retry message so we can filter it from UI
+    let skipNextUserMessage = true
 
     // Spawn Claude with --resume to connect to the session
     const claude = spawnClaude({
       cwd: projectPath,
       resume: sessionId,
       onMessage: (msg) => {
+        const rawMsg = msg as { type?: string; message?: { role?: string } }
+        // Skip the retry message we sent (it's a user message)
+        if (skipNextUserMessage) {
+          const isUserMsg = rawMsg.type === 'user' ||
+            (rawMsg.message && rawMsg.message.role === 'user')
+          if (isUserMsg) {
+            skipNextUserMessage = false
+            return // Don't emit this message to UI
+          }
+        }
         this.emitMessage(sessionId, msg)
       },
       onPermissionRequest: (permReq) => {
@@ -681,8 +706,11 @@ export class ClaudeService {
           ? updatedInput
           : permReq.input
         claude.sendPermissionResponse(permReq.requestId, true, inputToSend)
-        // Emit permission resolved to close the UI popup
+        // Emit permission resolved to close BOTH the original and new popup
         this.emitPermissionResolved(sessionId, pendingHook.toolUseId)
+        if (permReq.toolUseId !== pendingHook.toolUseId) {
+          this.emitPermissionResolved(sessionId, permReq.toolUseId)
+        }
       }
     })
 
@@ -899,10 +927,17 @@ export class ClaudeService {
   ): void {
     console.log(`[ClaudeService] Hook notification: ${notificationType} for session ${sessionId}`)
 
+    // Skip if we're currently handling a permission approval via resume
+    if (this.sessionsBeingApproved.has(sessionId)) {
+      console.log(`[ClaudeService] Skipping hook notification - session being approved`)
+      return
+    }
+
     if (notificationType === 'permission_prompt') {
       let toolName = 'Permission Required'
       let toolInput: Record<string, unknown> = { message }
       let toolUseId = `hook-${sessionId}`
+      let toolTimestamp: Date | null = null
 
       if (cwd && sessionId) {
         try {
@@ -912,10 +947,27 @@ export class ClaudeService {
             toolName = pendingTool.name
             toolInput = pendingTool.input as Record<string, unknown>
             toolUseId = pendingTool.id
+            toolTimestamp = new Date(pendingTool.timestamp)
+
+            // Skip if there are messages AFTER this tool call (conversation continued via retry)
+            const hasNewerMessages = sessionData.messages.some(msg => {
+              const msgTimestamp = new Date((msg as { timestamp?: string }).timestamp || 0)
+              return toolTimestamp && msgTimestamp > toolTimestamp
+            })
+            if (hasNewerMessages) {
+              console.log(`[ClaudeService] Skipping hook notification - conversation has newer messages`)
+              return
+            }
           }
         } catch (err) {
           console.log(`[ClaudeService] Could not read session data: ${(err as Error).message}`)
         }
+      }
+
+      // Skip if this permission was already handled via retry approach
+      if (this.handledViaRetryIds.has(toolUseId)) {
+        console.log(`[ClaudeService] Skipping hook notification - permission already handled via retry`)
+        return
       }
 
       this.pendingHookPermissions.set(sessionId, {
@@ -993,10 +1045,22 @@ export class ClaudeService {
         for (const tool of sessionData.pendingToolCalls) {
           if (tool.name !== 'AskUserQuestion') continue
           if (lastPendingIds.has(tool.id)) continue
+          // Skip if this permission was already handled via retry approach
+          if (this.handledViaRetryIds.has(tool.id)) continue
 
           const toolTimestamp = new Date(tool.timestamp)
           const toolAgeMs = Date.now() - toolTimestamp.getTime()
           if (toolAgeMs > 30000) {
+            lastPendingIds.add(tool.id)
+            continue
+          }
+
+          // Skip if there are messages AFTER this tool call (conversation continued via retry)
+          const hasNewerMessages = sessionData.messages.some(msg => {
+            const msgTimestamp = new Date((msg as { timestamp?: string }).timestamp || 0)
+            return msgTimestamp > toolTimestamp
+          })
+          if (hasNewerMessages) {
             lastPendingIds.add(tool.id)
             continue
           }
