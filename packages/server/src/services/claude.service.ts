@@ -896,6 +896,18 @@ export class ClaudeService {
           for (const tool of sessionData.pendingToolCalls) {
             if (seenToolIds.has(tool.id)) continue
             if (this.deniedPermissionIds.has(tool.id)) continue // Skip denied permissions
+            if (this.handledViaRetryIds.has(tool.id)) continue // Skip already handled via retry
+
+            // Skip if there are messages AFTER this tool call (conversation moved on via retry)
+            const toolTimestamp = new Date(tool.timestamp)
+            const hasNewerMessages = sessionData.messages.some(msg => {
+              const msgTimestamp = new Date((msg as { timestamp?: string }).timestamp || 0)
+              return msgTimestamp > toolTimestamp
+            })
+            if (hasNewerMessages) {
+              continue // Skip - conversation has newer messages after this tool call
+            }
+
             permissions.push({
               toolName: tool.name,
               toolUseId: tool.id,
