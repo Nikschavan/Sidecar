@@ -8,7 +8,7 @@ import { queryKeys } from '../lib/queryKeys'
 import { fetchSessionMessages, type SessionMessagesResponse } from '../lib/api'
 import type { ChatMessage } from '@sidecar/shared'
 
-const PAGE_SIZE = 50 // Number of messages per page
+const PAGE_SIZE = 20 // Number of messages per page
 
 export function useSessionMessages(apiUrl: string, sessionId: string | null) {
   const queryClient = useQueryClient()
