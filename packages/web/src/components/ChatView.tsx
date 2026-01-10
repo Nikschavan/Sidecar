@@ -161,7 +161,8 @@ export function ChatView({ messages, loading, sending, isProcessing, pendingPerm
   const userScrolledUp = useRef(false)
   const prevMessageCount = useRef(0)
   const prevScrollHeight = useRef(0)
-  const topSentinelRef = useRef<HTMLDivElement>(null)
+  const observerRef = useRef<IntersectionObserver | null>(null)
+  const loadCooldownRef = useRef(false)
 
   const handleScroll = useCallback(() => {
     const container = containerRef.current
@@ -172,30 +173,44 @@ export function ChatView({ messages, loading, sending, isProcessing, pendingPerm
     userScrolledUp.current = !isNearBottom
   }, [])
 
-  // Intersection Observer for auto-loading when sentinel becomes visible
-  useEffect(() => {
-    if (!topSentinelRef.current || !hasNextPage || !fetchNextPage) return
+  // Callback ref pattern for IntersectionObserver (recommended by TanStack Query docs)
+  const topSentinelRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      // Disconnect previous observer
+      if (observerRef.current) {
+        observerRef.current.disconnect()
+        observerRef.current = null
+      }
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[0]
-        if (entry.isIntersecting && !isFetchingNextPage) {
-          console.log('[ChatView] Top sentinel visible, loading more messages...')
-          // Store scroll position info before loading
-          const container = containerRef.current
-          if (container) {
-            prevScrollHeight.current = container.scrollHeight
+      // Don't observe if we're loading, no more pages, or in cooldown
+      if (!node || !hasNextPage || !fetchNextPage || isFetchingNextPage || loadCooldownRef.current) {
+        return
+      }
+
+      observerRef.current = new IntersectionObserver(
+        (entries) => {
+          const entry = entries[0]
+          if (entry.isIntersecting && hasNextPage && !isFetchingNextPage && !loadCooldownRef.current) {
+            console.log('[ChatView] Top sentinel visible, loading more messages...')
+
+            // Set cooldown to prevent rapid re-triggers
+            loadCooldownRef.current = true
+
+            // Store scroll position info before loading
+            const container = containerRef.current
+            if (container) {
+              prevScrollHeight.current = container.scrollHeight
+            }
+            fetchNextPage()
           }
-          fetchNextPage()
-        }
-      },
-      { threshold: 0.1, rootMargin: '100px' } // Trigger slightly before visible
-    )
+        },
+        { threshold: 0.1 }
+      )
 
-    observer.observe(topSentinelRef.current)
-
-    return () => observer.disconnect()
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
+      observerRef.current.observe(node)
+    },
+    [hasNextPage, isFetchingNextPage, fetchNextPage]
+  )
 
   useEffect(() => {
     const container = containerRef.current
@@ -209,6 +224,7 @@ export function ChatView({ messages, loading, sending, isProcessing, pendingPerm
     if (messages.length < prevMessageCount.current - 1) {
       userScrolledUp.current = false
       prevScrollHeight.current = 0
+      loadCooldownRef.current = false
     }
 
     // If we loaded more messages (scrollback), maintain scroll position
@@ -223,6 +239,12 @@ export function ChatView({ messages, loading, sending, isProcessing, pendingPerm
         console.log('[ChatView] Maintained scroll position after loading', { oldHeight: prevScrollHeight.current, newHeight: newScrollHeight, diff: scrollHeightDiff })
 
         prevScrollHeight.current = 0
+
+        // Clear cooldown after scroll adjustment with a small delay
+        // This prevents immediate re-trigger while allowing future scrolls
+        setTimeout(() => {
+          loadCooldownRef.current = false
+        }, 100)
       })
     }
     // Only auto-scroll to bottom if user hasn't scrolled up
