@@ -1040,45 +1040,6 @@ export class ClaudeService {
         }
       }
 
-      // File-based detection for AskUserQuestion
-      if (isSessionActive(projectPath, sessionId, 30)) {
-        for (const tool of sessionData.pendingToolCalls) {
-          if (tool.name !== 'AskUserQuestion') continue
-          if (lastPendingIds.has(tool.id)) continue
-          // Skip if this permission was already handled via retry approach
-          if (this.handledViaRetryIds.has(tool.id)) continue
-
-          const toolTimestamp = new Date(tool.timestamp)
-          const toolAgeMs = Date.now() - toolTimestamp.getTime()
-          if (toolAgeMs > 30000) {
-            lastPendingIds.add(tool.id)
-            continue
-          }
-
-          // Skip if there are messages AFTER this tool call (conversation continued via retry)
-          const hasNewerMessages = sessionData.messages.some(msg => {
-            const msgTimestamp = new Date((msg as { timestamp?: string }).timestamp || 0)
-            return msgTimestamp > toolTimestamp
-          })
-          if (hasNewerMessages) {
-            lastPendingIds.add(tool.id)
-            continue
-          }
-
-          console.log(`[ClaudeService] File-detected AskUserQuestion: ${tool.id}`)
-          lastPendingIds.add(tool.id)
-          this.pendingAskUserQuestions.set(tool.id, { tool, sessionId })
-
-          this.emitPermissionRequest(sessionId, {
-            toolName: tool.name,
-            toolUseId: tool.id,
-            requestId: tool.id,
-            input: tool.input as Record<string, unknown>,
-            source: 'file'
-          })
-        }
-      }
-
       // Track all current pending IDs
       for (const tool of sessionData.pendingToolCalls) {
         lastPendingIds.add(tool.id)
