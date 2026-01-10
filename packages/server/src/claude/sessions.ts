@@ -676,38 +676,14 @@ export function readClaudeSession(
 }
 
 /**
- * Get the total number of messages in a session (fast count)
- * Useful for pagination metadata
+ * Get the total number of messages in a session
+ * Uses the same filtering logic as readClaudeSession for consistency
  */
 export function getSessionMessageCount(cwd: string, sessionId: string): number {
-  const projectDir = getProjectDir(cwd)
-  const sessionFile = join(projectDir, `${sessionId}.jsonl`)
-
-  if (!existsSync(sessionFile)) {
-    return 0
-  }
-
-  const content = readFileSync(sessionFile, 'utf-8')
-  const lines = content.trim().split('\n')
-  let count = 0
-  const seenIds = new Set<string>()
-
-  for (const line of lines) {
-    try {
-      const entry = JSON.parse(line) as ClaudeMessage
-      // Count user and assistant messages (not meta, not duplicates)
-      if ((entry.type === 'user' || entry.type === 'assistant') && entry.uuid && !entry.isMeta) {
-        if (!seenIds.has(entry.uuid)) {
-          seenIds.add(entry.uuid)
-          count++
-        }
-      }
-    } catch {
-      // Skip malformed lines
-    }
-  }
-
-  return count
+  // Read all messages with full filtering applied to ensure consistent count
+  // This guarantees totalMessages matches what readClaudeSession would return
+  const messages = readClaudeSession(cwd, sessionId)
+  return messages.length
 }
 
 /**
