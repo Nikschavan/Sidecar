@@ -462,12 +462,43 @@ export function readClaudeSession(
     }
   }
 
-  // Second pass: build messages with tool results attached
-  // Track if we just saw a retry message to skip the following assistant message
-  let skipNextAssistant = false
-  let lastRetryToolName: string | null = null
+  // Second pass: find all retry messages and their line indices
+  // Map from tool name to list of line indices where retry messages appear
+  const retryMessageIndices = new Map<string, number[]>()
+  for (let i = 0; i < lines.length; i++) {
+    try {
+      const entry = JSON.parse(lines[i]) as ClaudeMessage
+      if (entry.type === 'user' && entry.message?.content) {
+        const content = entry.message.content
+        let messageText = ''
+        if (typeof content === 'string') {
+          messageText = content
+        } else if (Array.isArray(content)) {
+          const textBlock = content.find((c: ContentBlock) => c.type === 'text' && c.text)
+          if (textBlock?.text) {
+            messageText = textBlock.text
+          }
+        }
+        // Match "Retry the <ToolName> tool call now"
+        const retryMatch = messageText.match(/Retry the (\w+) tool call now/)
+        if (retryMatch) {
+          const toolName = retryMatch[1]
+          if (!retryMessageIndices.has(toolName)) {
+            retryMessageIndices.set(toolName, [])
+          }
+          retryMessageIndices.get(toolName)!.push(i)
+        }
+      }
+    } catch {
+      // Skip malformed lines
+    }
+  }
 
-  for (const line of lines) {
+  // Third pass: build messages with tool results attached
+  // Skip original tool calls that have a retry message AFTER them
+  // Show retried tool calls (which have results)
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const line = lines[lineIndex]
     try {
       const entry = JSON.parse(line) as ClaudeMessage
 
@@ -485,7 +516,7 @@ export function readClaudeSession(
         continue
       }
 
-      // Check if this is a retry instruction message
+      // Check if this is a retry instruction message - skip it
       if (entry.type === 'user' && entry.message?.content) {
         const content = entry.message.content
         let messageText = ''
@@ -500,27 +531,33 @@ export function readClaudeSession(
         // Match "Retry the <ToolName> tool call now"
         const retryMatch = messageText.match(/Retry the (\w+) tool call now/)
         if (retryMatch) {
-          skipNextAssistant = true
-          lastRetryToolName = retryMatch[1]
           continue // Skip this retry user message
         }
       }
 
-      // Skip assistant message that contains the retried tool call
-      if (skipNextAssistant && entry.type === 'assistant' && lastRetryToolName) {
-        skipNextAssistant = false
-        // Check if this assistant message contains the retried tool
-        const content = entry.message?.content
-        if (Array.isArray(content)) {
-          const hasRetryTool = content.some((c: ContentBlock) =>
-            c.type === 'tool_use' && c.name === lastRetryToolName
-          )
-          if (hasRetryTool) {
-            lastRetryToolName = null
-            continue // Skip this assistant message (it's the retry response)
+      // For assistant messages with tools, check if there's a retry message AFTER this line
+      // If so, this is the original tool call (without result) - skip it
+      if (entry.type === 'assistant' && entry.message?.content && Array.isArray(entry.message.content)) {
+        const tools = entry.message.content.filter((c: ContentBlock) => c.type === 'tool_use')
+        if (tools.length > 0) {
+          // Check if any tool in this message has a retry message after it
+          let shouldSkip = false
+          for (const tool of tools) {
+            const toolName = tool.name
+            const retryIndices = retryMessageIndices.get(toolName || '')
+            if (retryIndices) {
+              // Check if there's a retry message at any index AFTER this line
+              const hasRetryAfter = retryIndices.some(idx => idx > lineIndex)
+              if (hasRetryAfter) {
+                shouldSkip = true
+                break
+              }
+            }
+          }
+          if (shouldSkip) {
+            continue // Skip this assistant message (it's the original tool call without result)
           }
         }
-        lastRetryToolName = null
       }
 
       // Skip if we've already seen this message (Claude sends multiple updates)
@@ -697,36 +734,14 @@ export interface SessionData {
 export function readSessionData(cwd: string, sessionId: string): SessionData {
   const messages = readClaudeSession(cwd, sessionId)
 
-  // Find retry messages and track which tools were retried and when
-  // Format: "Retry the <ToolName> tool call now"
-  const retriedTools = new Map<string, string>() // toolName -> retry message timestamp
-  for (const msg of messages) {
-    if (msg.role === 'user' && msg.content) {
-      for (const block of msg.content) {
-        if (typeof block === 'string') {
-          const retryMatch = block.match(/Retry the (\w+) tool call now/)
-          if (retryMatch) {
-            retriedTools.set(retryMatch[1], msg.timestamp || '')
-          }
-        }
-      }
-    }
-  }
-
   // Extract pending tool calls from messages (tool calls without results)
-  // Exclude tool calls that appear BEFORE a retry message for the same tool
+  // Note: readClaudeSession already filters out original tool calls that have been retried,
+  // so we only need to check for tools without results
   const pendingToolCalls: PendingToolCall[] = []
   for (const msg of messages) {
     if (msg.toolCalls) {
       for (const tool of msg.toolCalls) {
         if (tool.result === undefined) {
-          // Check if this tool was retried after this message
-          const retryTimestamp = retriedTools.get(tool.name)
-          if (retryTimestamp && msg.timestamp && msg.timestamp < retryTimestamp) {
-            // This tool call appears before its retry message - skip it
-            continue
-          }
-
           pendingToolCalls.push({
             id: tool.id,
             name: tool.name,
