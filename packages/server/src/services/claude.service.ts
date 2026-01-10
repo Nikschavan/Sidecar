@@ -576,16 +576,6 @@ export class ClaudeService {
         resolve: resolvePromise!
       })
 
-      // Timeout
-      setTimeout(() => {
-        if (!finished) {
-          finished = true
-          this.activeProcesses.delete(sessionId)
-          claude.child.kill()
-          resolvePromise()
-        }
-      }, 300000)
-
       donePromise.then(() => {
         resolve({ sessionId, responses })
       })
