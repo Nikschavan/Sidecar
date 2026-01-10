@@ -4,7 +4,7 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '../lib/queryKeys'
-import { sendMessage, type SessionMessagesResponse } from '../lib/api'
+import { sendMessage } from '../lib/api'
 import type { ChatMessage, ContentBlock, ImageBlock } from '@sidecar/shared'
 import type { SessionSettings } from '../components/InputBar'
 
@@ -43,7 +43,7 @@ export function useSendMessage(
       })
 
       // Snapshot the previous value
-      const previousMessages = queryClient.getQueryData<SessionMessagesResponse>(
+      const previousMessages = queryClient.getQueryData(
         queryKeys.messages(sessionId)
       )
 
@@ -60,14 +60,19 @@ export function useSendMessage(
         timestamp: new Date().toISOString()
       }
 
-      // Optimistically add message
-      queryClient.setQueryData<SessionMessagesResponse>(
+      // Optimistically add message to infinite query structure
+      queryClient.setQueryData(
         queryKeys.messages(sessionId),
-        (old) => {
-          if (!old) return old
+        (old: any) => {
+          if (!old?.pages?.[0]) return old
+
           return {
             ...old,
-            messages: [...old.messages, tempMessage],
+            pages: old.pages.map((page: any, i: number) => i === 0 ? {
+              ...page,
+              messages: [...page.messages, tempMessage],
+              messageCount: page.messageCount + 1,
+            } : page)
           }
         }
       )

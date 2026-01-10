@@ -47,9 +47,6 @@ export function useSessionSSE({
 }: UseSessionSSEOptions) {
   const queryClient = useQueryClient()
   const eventSourceRef = useRef<EventSource | null>(null)
-  const isUnmountedRef = useRef(false)
-  const currentSessionIdRef = useRef(currentSessionId)
-  const reconnectTimeoutRef = useRef<number | null>(null)
 
   // Store callbacks in refs to avoid reconnecting when they change
   const onPermissionRequestRef = useRef(onPermissionRequest)
@@ -58,15 +55,14 @@ export function useSessionSSE({
   const onProcessingCompleteRef = useRef(onProcessingComplete)
   const onToolResolvedRef = useRef(onToolResolved)
 
-  // Keep refs in sync
+  // Keep callback refs in sync
   useEffect(() => {
-    currentSessionIdRef.current = currentSessionId
     onPermissionRequestRef.current = onPermissionRequest
     onPermissionResolvedRef.current = onPermissionResolved
     onSessionAbortedRef.current = onSessionAborted
     onProcessingCompleteRef.current = onProcessingComplete
     onToolResolvedRef.current = onToolResolved
-  }, [currentSessionId, onPermissionRequest, onPermissionResolved, onSessionAborted, onProcessingComplete, onToolResolved])
+  }, [onPermissionRequest, onPermissionResolved, onSessionAborted, onProcessingComplete, onToolResolved])
 
   // Update React Query cache from SSE message (for infinite query)
   const updateMessagesCache = useCallback((message: ChatMessage, sessionId: string) => {
@@ -115,9 +111,15 @@ export function useSessionSSE({
             filtered = firstPage.messages.filter((m: ChatMessage) => !m.id?.startsWith('temp-'))
           }
 
+          // Add new message and sort by timestamp to ensure correct order
+          // ISO timestamps sort correctly as strings
+          const newMessages = [...filtered, message].sort((a, b) =>
+            a.timestamp.localeCompare(b.timestamp)
+          )
+
           updatedPages[0] = {
             ...firstPage,
-            messages: [...filtered, message],
+            messages: newMessages,
             messageCount: filtered.length + 1,
             totalMessages: firstPage.totalMessages + 1,
           }
@@ -131,149 +133,7 @@ export function useSessionSSE({
     )
   }, [queryClient])
 
-  // SSE connection
-  useEffect(() => {
-    isUnmountedRef.current = false
-
-    const connect = () => {
-      if (isUnmountedRef.current || !currentSessionIdRef.current) return
-
-      // Close existing connection
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close()
-        eventSourceRef.current = null
-      }
-
-      const sseUrl = `${apiUrl}/api/events/${currentSessionIdRef.current}`
-      console.log('[SSE] Connecting to', sseUrl)
-
-      const eventSource = new EventSource(getAuthenticatedSseUrl(sseUrl))
-      eventSourceRef.current = eventSource
-
-      eventSource.addEventListener('connected', () => {
-        console.log('[SSE] Connected')
-      })
-
-      eventSource.addEventListener('heartbeat', () => {
-        // Heartbeat received, connection is alive
-      })
-
-      eventSource.addEventListener('claude_message', (event) => {
-        try {
-          const data = JSON.parse(event.data)
-          const sessionId = currentSessionIdRef.current
-          if (!sessionId || data.sessionId !== sessionId) {
-            return
-          }
-
-          const message = data.message
-
-          // Result messages are status updates, not chat messages - don't add to cache
-          if (message.type === 'result') {
-            onProcessingCompleteRef.current()
-            return
-          }
-
-          // Only add valid chat messages to cache (must have id and role)
-          if (message.id && message.role) {
-            updateMessagesCache(message, sessionId)
-          }
-
-          // Check if tool call was resolved
-          const toolCalls = message.toolCalls as Array<{ id: string; result?: string }> | undefined
-          if (toolCalls && onToolResolvedRef.current) {
-            for (const tool of toolCalls) {
-              if (tool.result !== undefined) {
-                onToolResolvedRef.current(tool.id)
-              }
-            }
-          }
-        } catch (e) {
-          console.error('[SSE] Failed to parse claude_message:', e)
-        }
-      })
-
-      eventSource.addEventListener('permission_request', (event) => {
-        try {
-          const data = JSON.parse(event.data)
-          const sessionId = currentSessionIdRef.current
-          if (!sessionId || data.sessionId !== sessionId) return
-
-          onPermissionRequestRef.current({
-            requestId: data.requestId,
-            sessionId: data.sessionId,
-            toolName: data.toolName,
-            toolUseId: data.toolUseId,
-            input: data.input,
-            permissionSuggestions: data.permissionSuggestions,
-            source: data.source
-          })
-        } catch (e) {
-          console.error('[SSE] Failed to parse permission_request:', e)
-        }
-      })
-
-      eventSource.addEventListener('permission_resolved', (event) => {
-        try {
-          const data = JSON.parse(event.data)
-          const sessionId = currentSessionIdRef.current
-          if (!sessionId || data.sessionId !== sessionId) return
-
-          onPermissionResolvedRef.current(data.toolId)
-        } catch (e) {
-          console.error('[SSE] Failed to parse permission_resolved:', e)
-        }
-      })
-
-      eventSource.addEventListener('session_aborted', (event) => {
-        try {
-          const data = JSON.parse(event.data)
-          const sessionId = currentSessionIdRef.current
-          if (!sessionId || data.sessionId !== sessionId) return
-
-          onSessionAbortedRef.current()
-        } catch (e) {
-          console.error('[SSE] Failed to parse session_aborted:', e)
-        }
-      })
-
-      eventSource.onerror = () => {
-        console.log('[SSE] Disconnected')
-        // EventSource auto-reconnects, but we'll also schedule our own reconnect
-        // in case the auto-reconnect fails or takes too long
-        if (!isUnmountedRef.current && eventSourceRef.current === eventSource) {
-          // Clear existing timeout if any
-          if (reconnectTimeoutRef.current) {
-            clearTimeout(reconnectTimeoutRef.current)
-          }
-          // Schedule reconnect
-          reconnectTimeoutRef.current = window.setTimeout(() => {
-            if (!isUnmountedRef.current) {
-              console.log('[SSE] Reconnecting...')
-              connect()
-            }
-          }, 5000) // 5 second delay before manual reconnect
-        }
-      }
-    }
-
-    if (currentSessionIdRef.current) {
-      connect()
-    }
-
-    return () => {
-      isUnmountedRef.current = true
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current)
-      }
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close()
-        eventSourceRef.current = null
-      }
-    }
-  }, [apiUrl, updateMessagesCache])
-
-  // Reconnect when session changes
+  // SSE connection - reconnects when session changes
   useEffect(() => {
     if (!currentSessionId) {
       // No session, close connection
@@ -380,6 +240,13 @@ export function useSessionSSE({
       console.log('[SSE] Disconnected from session')
     }
 
+    // Cleanup on unmount or session change
+    return () => {
+      eventSource.close()
+      if (eventSourceRef.current === eventSource) {
+        eventSourceRef.current = null
+      }
+    }
   }, [apiUrl, currentSessionId, updateMessagesCache])
 
   // Send permission response via REST API

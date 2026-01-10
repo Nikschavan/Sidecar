@@ -45,6 +45,8 @@ export interface WatchedSession {
   projectPath: string
   lastPendingIds: Set<string>
   lastMessageCount: number
+  lastActivityTime: number  // Timestamp of last message/activity
+  hasEmittedCompletion: boolean  // Track if we've already emitted completion for inactivity
 }
 
 /**
@@ -263,7 +265,7 @@ export class ClaudeService {
       chatMessage = rawMsg.message
     }
 
-    const chat = chatMessage as { role?: string; id?: string; content?: unknown[]; type?: string }
+    const chat = chatMessage as { role?: string; id?: string; content?: unknown[]; type?: string; toolCalls?: unknown[]; timestamp?: string }
 
     // Only emit messages that have both 'role' and 'id' (valid chat messages)
     if (!chat.role || !chat.id) {
@@ -272,6 +274,16 @@ export class ClaudeService {
 
     // Normalize message to ChatMessage format expected by UI
     const normalizedMessage = this.normalizeMessage(chat)
+
+    // Preserve toolCalls from file-polled messages (already processed by readSessionData)
+    if (chat.toolCalls && !normalizedMessage.toolCalls) {
+      normalizedMessage.toolCalls = chat.toolCalls
+    }
+
+    // Preserve timestamp from file-polled messages
+    if (chat.timestamp) {
+      normalizedMessage.timestamp = chat.timestamp
+    }
 
     // Filter out our internal retry messages (they get saved to session file and read back)
     const normalizedContent = normalizedMessage.content as unknown[] | undefined
@@ -390,9 +402,12 @@ export class ClaudeService {
         },
         onMessage: (msg) => {
           responses.push(msg)
-          if (newSessionId) {
+          // Emit result messages to UI (signals processing complete)
+          const rawMsg = msg as { type?: string }
+          if (rawMsg.type === 'result' && newSessionId) {
             this.emitMessage(newSessionId, msg)
           }
+          // Don't emit chat messages here - file polling handles those to avoid duplicates
         },
         onPermissionRequest: (permReq) => {
           console.log(`[ClaudeService] Permission request for ${permReq.toolName}`)
@@ -483,7 +498,7 @@ export class ClaudeService {
         model: options.model,
         onMessage: (msg) => {
           responses.push(msg)
-          this.emitMessage(sessionId, msg)
+          // Don't emit here - file polling handles message emission to avoid duplicates
         },
         onPermissionRequest: (permReq) => {
           console.log(`[ClaudeService] Permission request for ${permReq.toolName}`)
@@ -531,6 +546,11 @@ export class ClaudeService {
       })
 
       claude.onMessage((msg) => {
+        // Emit result messages to UI (signals processing complete)
+        if (msg.type === 'result') {
+          this.emitMessage(sessionId, msg)
+        }
+
         if (msg.type === 'result' && !finished) {
           finished = true
           this.activeProcesses.delete(sessionId)
@@ -720,7 +740,7 @@ export class ClaudeService {
             skipNextAssistantWithTool = false
           }
         }
-        this.emitMessage(sessionId, msg)
+        // Don't emit here - file polling handles message emission to avoid duplicates
       },
       onPermissionRequest: (permReq) => {
         // For AskUserQuestion, use updatedInput which contains user's answers
@@ -819,7 +839,9 @@ export class ClaudeService {
       this.watchedSessions.set(sessionId, {
         projectPath,
         lastPendingIds: initialPendingIds,
-        lastMessageCount: sessionData.messages.length
+        lastMessageCount: sessionData.messages.length,
+        lastActivityTime: Date.now(),
+        hasEmittedCompletion: false
       })
     }
 
@@ -1026,13 +1048,16 @@ export class ClaudeService {
         continue
       }
 
-      // Check for new messages
+      // Check for new messages (from terminal sessions or external changes)
       if (sessionData.messages.length > watchedSession.lastMessageCount) {
         const newMessages = sessionData.messages.slice(watchedSession.lastMessageCount)
         for (const message of newMessages) {
           this.emitMessage(sessionId, message)
         }
         watchedSession.lastMessageCount = sessionData.messages.length
+        // Reset activity tracking when new messages arrive
+        watchedSession.lastActivityTime = Date.now()
+        watchedSession.hasEmittedCompletion = false
       }
 
       // Check for resolved permissions
@@ -1058,6 +1083,22 @@ export class ClaudeService {
       // Track all current pending IDs
       for (const tool of sessionData.pendingToolCalls) {
         lastPendingIds.add(tool.id)
+      }
+
+      // Check for inactivity timeout (10 seconds with no new messages and no pending tools)
+      // This signals completion for terminal sessions where we don't get result messages
+      const INACTIVITY_TIMEOUT_MS = 10000
+      const timeSinceActivity = Date.now() - watchedSession.lastActivityTime
+      const hasPendingTools = currentPendingIds.size > 0 ||
+        this.pendingHookPermissions.has(sessionId) ||
+        Array.from(this.pendingAskUserQuestions.values()).some(e => e.sessionId === sessionId)
+
+      if (!watchedSession.hasEmittedCompletion &&
+          !hasPendingTools &&
+          timeSinceActivity >= INACTIVITY_TIMEOUT_MS) {
+        // Emit synthetic result message to signal processing complete
+        this.emitMessage(sessionId, { type: 'result', result: '', duration_ms: 0 })
+        watchedSession.hasEmittedCompletion = true
       }
     }
   }
