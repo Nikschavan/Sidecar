@@ -38,18 +38,6 @@ export interface ActiveProcess {
 }
 
 /**
- * Pending hook-based permission
- */
-export interface PendingHookPermission {
-  sessionId: string
-  message: string
-  timestamp: number
-  toolName: string
-  toolUseId: string
-  toolInput: Record<string, unknown>
-}
-
-/**
  * Watched session state
  */
 export interface WatchedSession {
@@ -91,9 +79,6 @@ export class ClaudeService {
   private clientWatchingSession = new Map<string, string>()
   private sessionWatchers = new Map<string, Set<string>>()
 
-  // Track pending hook-based permissions
-  private pendingHookPermissions = new Map<string, PendingHookPermission>()
-
   // Track pending AskUserQuestion tools
   private pendingAskUserQuestions = new Map<string, { tool: PendingToolCall; sessionId: string }>()
 
@@ -106,9 +91,6 @@ export class ClaudeService {
 
   // Track denied/cancelled permission IDs to prevent re-sending on reconnection
   private deniedPermissionIds = new Set<string>()
-
-  // Track permission IDs handled via retry approach (don't show as pending after reload)
-  private handledViaRetryIds = new Set<string>()
 
   // Track permission timeouts (requestId -> timeout handle)
   private permissionTimeouts = new Map<string, NodeJS.Timeout>()
@@ -648,11 +630,26 @@ export class ClaudeService {
     }
 
     // Handle hook-based permission (Claude running in terminal)
-    const pendingHook = this.pendingHookPermissions.get(sessionId)
-    if (pendingHook && allow) {
-      console.log(`[ClaudeService] Responding to hook permission via resume`)
-      this.respondToHookPermission(sessionId, pendingHook, options.updatedInput, options.answer)
-      return true
+    // Instead of caching, read from session file to get current pending tool
+    const projectPath = findSessionProject(sessionId)
+    if (projectPath && allow) {
+      try {
+        const sessionData = readSessionData(projectPath, sessionId)
+        if (sessionData.pendingToolCalls.length > 0) {
+          const pendingTool = sessionData.pendingToolCalls[sessionData.pendingToolCalls.length - 1]
+          console.log(`[ClaudeService] Responding to hook permission via resume for ${pendingTool.name}`)
+          this.respondToHookPermission(
+            sessionId,
+            pendingTool.name,
+            pendingTool.id,
+            options.updatedInput || pendingTool.input as Record<string, unknown>,
+            options.answer
+          )
+          return true
+        }
+      } catch (err) {
+        console.log(`[ClaudeService] Could not read session for hook permission: ${(err as Error).message}`)
+      }
     }
 
     // Handle denial - track as denied to prevent re-sending on reconnection
@@ -660,7 +657,6 @@ export class ClaudeService {
       console.log(`[ClaudeService] Permission denied for ${requestId}, tracking to prevent re-send`)
       this.deniedPermissionIds.add(requestId)
       // Clear from pending maps if present
-      this.pendingHookPermissions.delete(sessionId)
       this.pendingAskUserQuestions.delete(requestId)
       this.emitPermissionResolved(sessionId, requestId)
       return true
@@ -676,7 +672,8 @@ export class ClaudeService {
    */
   private respondToHookPermission(
     sessionId: string,
-    pendingHook: PendingHookPermission,
+    toolName: string,
+    toolUseId: string,
     updatedInput?: Record<string, unknown>,
     answer?: string  // For AskUserQuestion: the user's selected answer
   ): void {
@@ -686,17 +683,10 @@ export class ClaudeService {
       return
     }
 
-    const toolName = pendingHook.toolName
     console.log(`[ClaudeService] Approving ${toolName} via retry approach for session ${sessionId}`)
 
     // Mark session as being approved to prevent re-detection during polling
     this.sessionsBeingApproved.add(sessionId)
-
-    // Mark this permission as handled via retry (so it doesn't show as pending after reload)
-    this.handledViaRetryIds.add(pendingHook.toolUseId)
-
-    // Clear the pending hook permission
-    this.pendingHookPermissions.delete(sessionId)
 
     // Craft retry message that instructs Claude to just retry the tool without extra commentary
     const retryMessage = `Retry the ${toolName} tool call now. Do not add any text, just use the tool. Ask Exact same question/tool call.`
@@ -751,8 +741,8 @@ export class ClaudeService {
           : permReq.input
         claude.sendPermissionResponse(permReq.requestId, true, inputToSend)
         // Emit permission resolved to close BOTH the original and new popup
-        this.emitPermissionResolved(sessionId, pendingHook.toolUseId)
-        if (permReq.toolUseId !== pendingHook.toolUseId) {
+        this.emitPermissionResolved(sessionId, toolUseId)
+        if (permReq.toolUseId !== toolUseId) {
           this.emitPermissionResolved(sessionId, permReq.toolUseId)
         }
       }
@@ -807,7 +797,7 @@ export class ClaudeService {
   /**
    * Watch a session for permissions (called when client connects)
    */
-  watchSession(clientId: string, sessionId: string): PendingHookPermission | null {
+  watchSession(clientId: string, sessionId: string): null {
     const projectPath = findSessionProject(sessionId)
     if (!projectPath) return null
 
@@ -846,15 +836,7 @@ export class ClaudeService {
       })
     }
 
-    // Return any pending hook permission for re-sending
-    const pendingHook = this.pendingHookPermissions.get(sessionId)
-    if (pendingHook && (Date.now() - pendingHook.timestamp < 300000)) {
-      return pendingHook
-    }
-    if (pendingHook) {
-      this.pendingHookPermissions.delete(sessionId)
-    }
-
+    // No longer caching pending hook permissions - polling will detect them from session file
     return null
   }
 
@@ -877,18 +859,6 @@ export class ClaudeService {
       source: 'hook' | 'file'
     }> = []
 
-    // Check for hook-based permissions (skip if denied)
-    const pendingHook = this.pendingHookPermissions.get(sessionId)
-    if (pendingHook && (Date.now() - pendingHook.timestamp < 300000) && !this.deniedPermissionIds.has(pendingHook.toolUseId)) {
-      permissions.push({
-        toolName: pendingHook.toolName,
-        toolUseId: pendingHook.toolUseId,
-        requestId: pendingHook.toolUseId,
-        input: pendingHook.toolInput,
-        source: 'hook'
-      })
-    }
-
     // Check for file-based AskUserQuestion permissions (already tracked, skip if denied)
     const seenToolIds = new Set<string>()
     for (const [toolId, entry] of this.pendingAskUserQuestions) {
@@ -904,11 +874,6 @@ export class ClaudeService {
       }
     }
 
-    // Also add hook permission to seen set
-    if (pendingHook) {
-      seenToolIds.add(pendingHook.toolUseId)
-    }
-
     // Check session file directly for any pending tool calls we haven't seen
     // This handles the case where user disconnects and reconnects while a permission is pending
     // Note: readSessionData() already filters out tool calls that were handled via retry
@@ -920,7 +885,6 @@ export class ClaudeService {
           for (const tool of sessionData.pendingToolCalls) {
             if (seenToolIds.has(tool.id)) continue
             if (this.deniedPermissionIds.has(tool.id)) continue // Skip denied permissions
-            if (this.handledViaRetryIds.has(tool.id)) continue // Skip already handled via retry
             if (PERMISSION_FREE_TOOLS.has(tool.name)) continue // Skip tools that don't need permission
 
             permissions.push({
@@ -1003,21 +967,7 @@ export class ClaudeService {
         }
       }
 
-      // Skip if this permission was already handled via retry approach
-      if (this.handledViaRetryIds.has(toolUseId)) {
-        console.log(`[ClaudeService] Skipping hook notification - permission already handled via retry`)
-        return
-      }
-
-      this.pendingHookPermissions.set(sessionId, {
-        sessionId,
-        message,
-        timestamp: Date.now(),
-        toolName,
-        toolUseId,
-        toolInput
-      })
-
+      // Emit permission request - no need to cache, we'll read from session file when responding
       this.emitPermissionRequest(sessionId, {
         toolName,
         toolUseId,
@@ -1064,14 +1014,6 @@ export class ClaudeService {
 
       // Check for resolved permissions
       const currentPendingIds = new Set(sessionData.pendingToolCalls.map(t => t.id))
-      const pendingHook = this.pendingHookPermissions.get(sessionId)
-
-      if (pendingHook && !currentPendingIds.has(pendingHook.toolUseId)) {
-        console.log(`[ClaudeService] Permission resolved for session ${sessionId}`)
-        this.clearPermissionTimeout(pendingHook.toolUseId)
-        this.pendingHookPermissions.delete(sessionId)
-        this.emitPermissionResolved(sessionId, pendingHook.toolUseId)
-      }
 
       // Check for resolved AskUserQuestion
       for (const [toolId, entry] of this.pendingAskUserQuestions) {
@@ -1092,7 +1034,6 @@ export class ClaudeService {
       const INACTIVITY_TIMEOUT_MS = 10000
       const timeSinceActivity = Date.now() - watchedSession.lastActivityTime
       const hasPendingTools = currentPendingIds.size > 0 ||
-        this.pendingHookPermissions.has(sessionId) ||
         Array.from(this.pendingAskUserQuestions.values()).some(e => e.sessionId === sessionId)
 
       if (!watchedSession.hasEmittedCompletion &&

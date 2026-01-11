@@ -714,18 +714,43 @@ export function readSessionData(cwd: string, sessionId: string): SessionData {
   // Note: readClaudeSession already filters out original tool calls that have been retried,
   // so we only need to check for tools without results
   const pendingToolCalls: PendingToolCall[] = []
-  for (const msg of messages) {
-    if (msg.toolCalls) {
-      for (const tool of msg.toolCalls) {
-        if (tool.result === undefined) {
-          pendingToolCalls.push({
-            id: tool.id,
-            name: tool.name,
-            input: tool.input,
-            timestamp: msg.timestamp || new Date().toISOString()
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i]
+    if (!msg.toolCalls) continue
+
+    for (const tool of msg.toolCalls) {
+      if (tool.result !== undefined) continue // Has result, not pending
+
+      // Check for implicit dismissal (plan tools only)
+      // If a plan tool has no result but user sent a message after it,
+      // treat it as implicitly dismissed (user moved on without formal approval)
+      const isPlanTool = tool.name === 'ExitPlanMode' || tool.name === 'EnterPlanMode'
+      if (isPlanTool) {
+        // Check if user sent any message after this tool
+        const hasUserMessageAfter = messages
+          .slice(i + 1)
+          .some(m => {
+            if (m.role !== 'user') return false
+            // Check for non-empty content (can be string or array at runtime)
+            const content = m.content as unknown
+            if (typeof content === 'string') return content.trim().length > 0
+            if (Array.isArray(content)) return content.length > 0
+            return false
           })
+
+        if (hasUserMessageAfter) {
+          console.log(`[readSessionData] Skipping implicitly dismissed plan tool: ${tool.name} (${tool.id})`)
+          continue // User implicitly dismissed this plan
         }
       }
+
+      pendingToolCalls.push({
+        id: tool.id,
+        name: tool.name,
+        input: tool.input,
+        timestamp: msg.timestamp || new Date().toISOString()
+      })
     }
   }
 
