@@ -14,10 +14,11 @@ const CLAUDE_DIR = join(homedir(), '.claude', 'projects')
 
 /**
  * Encode a project path to Claude's directory format
- * /Users/foo/project -> -Users-foo-project
+ * Replaces / and . with - to match Claude CLI's encoding
+ * /Users/foo/project.name -> -Users-foo-project-name
  */
 export function encodeProjectPath(cwd: string): string {
-  return cwd.replace(/\//g, '-')
+  return cwd.replace(/[/.]/g, '-')
 }
 
 /**
