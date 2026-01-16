@@ -248,11 +248,57 @@ export function getMostRecentSession(cwd: string): string | null {
  * Decode a Claude directory name back to project path
  * -Users-foo-project -> /Users/foo/project
  *
- * Note: This simple decode may not work for folders with hyphens in their names.
- * Use getProjectCwdFromSession() for accurate paths.
+ * This uses a smart decoding approach that validates against the filesystem
+ * to handle folders with hyphens in their names (e.g., woocommerce-analytics).
  */
 export function decodeProjectPath(encoded: string): string {
-  return encoded.replace(/^-/, '/').replace(/-/g, '/')
+  // Simple decode - replace all hyphens with slashes
+  const simpleDecode = encoded.replace(/^-/, '/').replace(/-/g, '/')
+
+  // If the simple decode exists, use it
+  if (existsSync(simpleDecode)) {
+    return simpleDecode
+  }
+
+  // Smart decode: try to find the actual path by checking the filesystem
+  // at each level to determine if a hyphen was a separator or part of the name
+  const parts = encoded.replace(/^-/, '').split('-')
+  let currentPath = ''
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]
+    const tryPath = currentPath + '/' + part
+
+    if (existsSync(tryPath)) {
+      // This path exists, continue
+      currentPath = tryPath
+    } else {
+      // Path doesn't exist, try combining with next parts using hyphens
+      // to handle folder names like "woocommerce-analytics"
+      let found = false
+      let combinedPart = part
+
+      for (let j = i + 1; j < parts.length; j++) {
+        combinedPart += '-' + parts[j]
+        const combinedPath = currentPath + '/' + combinedPart
+
+        if (existsSync(combinedPath)) {
+          currentPath = combinedPath
+          i = j // Skip the parts we combined
+          found = true
+          break
+        }
+      }
+
+      if (!found) {
+        // Couldn't find a valid path, fall back to simple decode
+        // This handles cases where the directory was deleted
+        return simpleDecode
+      }
+    }
+  }
+
+  return currentPath || simpleDecode
 }
 
 /**
