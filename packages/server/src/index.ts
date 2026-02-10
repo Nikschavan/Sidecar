@@ -201,8 +201,21 @@ Authentication:
 function shutdown(signal: string) {
   console.log(`\n[server] Received ${signal}, shutting down...`)
   removeClaudeHooks()
+  claudeService.killAllProcesses()
   process.exit(0)
 }
 
 process.on('SIGINT', () => shutdown('SIGINT'))
 process.on('SIGTERM', () => shutdown('SIGTERM'))
+
+// Handle uncaught exceptions - try to clean up before crashing
+process.on('uncaughtException', (err) => {
+  console.error('[server] Uncaught exception:', err)
+  claudeService.killAllProcesses()
+  process.exit(1)
+})
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason) => {
+  console.error('[server] Unhandled rejection:', reason)
+})

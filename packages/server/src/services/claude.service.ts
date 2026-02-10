@@ -109,29 +109,53 @@ export class ClaudeService {
    * Called on startup to clean up processes that may be stuck waiting for permissions
    */
   killOrphanedProcesses(): void {
-    try {
-      // Find Claude processes with --permission-prompt-tool stdio (spawned by Sidecar)
-      const result = execSync(
-        'pgrep -f "claude.*--permission-prompt-tool stdio" || true',
-        { encoding: 'utf-8' }
-      ).trim()
+    // Patterns to match orphaned Claude processes spawned by Sidecar
+    const patterns = [
+      'claude.*--permission-prompt-tool stdio',  // Processes spawned directly by Sidecar
+      'claude.*--claude-in-chrome-mcp',          // MCP server processes
+    ]
 
-      if (result) {
-        const pids = result.split('\n').filter(Boolean)
-        console.log(`[ClaudeService] Found ${pids.length} orphaned Claude process(es), killing...`)
-        for (const pid of pids) {
-          try {
-            process.kill(parseInt(pid, 10), 'SIGTERM')
-            console.log(`[ClaudeService] Killed orphaned process ${pid}`)
-          } catch (err) {
-            // Process may have already exited
-            console.log(`[ClaudeService] Could not kill process ${pid}: ${(err as Error).message}`)
+    for (const pattern of patterns) {
+      try {
+        const result = execSync(
+          `pgrep -f "${pattern}" || true`,
+          { encoding: 'utf-8' }
+        ).trim()
+
+        if (result) {
+          const pids = result.split('\n').filter(Boolean)
+          console.log(`[ClaudeService] Found ${pids.length} orphaned Claude process(es) matching "${pattern}", killing...`)
+          for (const pid of pids) {
+            try {
+              process.kill(parseInt(pid, 10), 'SIGTERM')
+              console.log(`[ClaudeService] Killed orphaned process ${pid}`)
+            } catch (err) {
+              // Process may have already exited
+              console.log(`[ClaudeService] Could not kill process ${pid}: ${(err as Error).message}`)
+            }
           }
         }
+      } catch (err) {
+        console.log(`[ClaudeService] Error checking for orphaned processes: ${(err as Error).message}`)
       }
-    } catch (err) {
-      console.log(`[ClaudeService] Error checking for orphaned processes: ${(err as Error).message}`)
     }
+  }
+
+  /**
+   * Kill all active Claude processes spawned by this service
+   * Called on graceful shutdown
+   */
+  killAllProcesses(): void {
+    console.log(`[ClaudeService] Killing ${this.activeProcesses.size} active Claude process(es)...`)
+    for (const [sessionId, proc] of this.activeProcesses) {
+      try {
+        proc.claude.child.kill('SIGTERM')
+        console.log(`[ClaudeService] Killed process for session ${sessionId}`)
+      } catch (err) {
+        console.log(`[ClaudeService] Could not kill process for ${sessionId}: ${(err as Error).message}`)
+      }
+    }
+    this.activeProcesses.clear()
   }
 
   /**
