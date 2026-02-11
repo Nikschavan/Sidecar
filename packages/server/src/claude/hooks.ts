@@ -108,14 +108,15 @@ export function setupClaudeHooks(sidecarPort: number, authToken?: string): void 
     console.log(`[hooks] Created Claude directory: ${claudeDir}`)
   }
 
-  // Read existing settings or create new
+  // Read existing settings - bail out if we can't parse to avoid overwriting user config
   let settings: ClaudeSettings = {}
   if (existsSync(settingsPath)) {
     try {
       settings = JSON.parse(readFileSync(settingsPath, 'utf-8'))
     } catch (err) {
       console.error(`[hooks] Failed to parse existing settings.json: ${(err as Error).message}`)
-      console.log(`[hooks] Creating new settings.json`)
+      console.error(`[hooks] Skipping hook setup to avoid overwriting user settings`)
+      return
     }
   }
 
@@ -144,8 +145,12 @@ export function setupClaudeHooks(sidecarPort: number, authToken?: string): void 
     })
     console.log(`[hooks] Added Sidecar notification hook to Claude settings`)
   } else {
-    // Update existing hook with new port
-    settings.hooks.Notification[existingIndex].hooks = [sidecarHook]
+    // Update only the sidecar hook command, preserving other hooks in the same entry
+    const entry = settings.hooks.Notification[existingIndex]
+    const otherHooks = (entry.hooks || []).filter(
+      (hook) => !hook.command?.includes('sidecar-hook')
+    )
+    entry.hooks = [...otherHooks, sidecarHook]
     console.log(`[hooks] Updated existing Sidecar notification hook`)
   }
 
@@ -168,9 +173,18 @@ export function removeClaudeHooks(): void {
     const settings: ClaudeSettings = JSON.parse(readFileSync(settingsPath, 'utf-8'))
 
     if (settings.hooks?.Notification) {
-      // Remove Sidecar hooks
+      // Remove only the sidecar hook commands from each entry, preserving other hooks
+      for (const entry of settings.hooks.Notification) {
+        if (entry.hooks?.some((hook) => hook.command?.includes('sidecar-hook'))) {
+          entry.hooks = entry.hooks.filter(
+            (hook) => !hook.command?.includes('sidecar-hook')
+          )
+        }
+      }
+
+      // Remove entries that have no hooks left
       settings.hooks.Notification = settings.hooks.Notification.filter(
-        (h) => !h.hooks?.some((hook) => hook.command?.includes('sidecar-hook'))
+        (h) => h.hooks && h.hooks.length > 0
       )
 
       // Clean up empty arrays
