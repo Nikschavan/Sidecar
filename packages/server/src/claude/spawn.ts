@@ -76,7 +76,8 @@ export function spawnClaude(options: SpawnOptions): ClaudeProcess {
     stdio: ['pipe', 'pipe', 'pipe'],
     env: {
       ...process.env,
-      DISABLE_AUTOUPDATER: '1'
+      DISABLE_AUTOUPDATER: '1',
+      CLAUDECODE: undefined,
     }
   })
 
